@@ -1,6 +1,6 @@
 # Catálogo de anti-patterns
 
-Usado na **Fase 2**. 32 entradas.
+Usado na **Fase 2**. 33 entradas.
 
 Cada entrada descreve o anti-pattern por **sinal observável**, não por sintaxe de uma linguagem. A tabela de manifestações mostra como o mesmo sinal aparece em cada stack. Suportar uma stack nova significa acrescentar uma linha — o sinal e a severidade não mudam.
 
@@ -58,6 +58,16 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 **Manifestações:** `app.run(debug=True, host='0.0.0.0')` · `DEBUG = True` em config versionada · `NODE_ENV` ausente com stack trace na resposta.
 **Por que CRITICAL:** o console interativo do Werkzeug exposto na rede é execução remota de código, não inconveniência.
 **Transformação:** → PB-02
+
+### AP-33 — Integração crítica substituída por stub
+**Sinal:** decisão de negócio de alto impacto — cobrança, autorização, verificação de identidade, comunicação obrigatória — tomada por expressão local trivial, onde o domínio exige chamada a um serviço externo. Sinais auxiliares: resultado derivado de prefixo, sufixo, comprimento ou valor mágico do input; credencial de gateway declarada na config e nunca lida por quem decide; função de envio que só registra log.
+**Severidade:** **CRITICAL** quando o stub decide dinheiro, acesso ou identidade. **HIGH** nos demais casos. Declare qual condição se aplica.
+**Manifestações:** JS `cc.startsWith("4") ? "PAID" : "DENIED"` · geral `def verificar(...): return True` · geral: `paymentGatewayKey` no config e nenhuma chamada HTTP ao gateway · geral: `enviar_email()` que só imprime.
+**Não confundir com AP-09.** O AP-09 é sobre a regra estar na **camada errada**; este é sobre a regra ser **falsa**, onde quer que esteja. Uma decisão de pagamento resolvida por um caractere é os dois findings ao mesmo tempo, e é este que define a severidade.
+**Por que importa:** receita fabricada e produto liberado de graça, sem nenhum erro no log. O stub se parece com lógica, então revisão de código passa por cima.
+**Transformação:** → PB-23 — e o finding **permanece** em `REQUER DECISÃO DE PRODUTO`: uma refatoração que preserva contrato não pode inventar a integração que não existe.
+
+> **Nota de numeração:** esta entrada é AP-33 e vive na seção CRITICAL. A numeração é identificador estável, não posição — relatórios já emitidos referenciam AP-NN, e renumerar quebraria o rastro.
 
 ---
 

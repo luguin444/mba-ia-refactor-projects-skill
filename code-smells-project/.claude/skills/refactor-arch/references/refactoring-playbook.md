@@ -1,6 +1,6 @@
 # Playbook de refatoração
 
-Usado na **Fase 3**. 22 transformações, referenciadas pelo catálogo.
+Usado na **Fase 3**. 23 transformações, referenciadas pelo catálogo.
 
 Os exemplos usam Python e JavaScript porque são as stacks dos projetos de referência. A transformação é a mesma em qualquer linguagem — traduza o idioma, não a ideia.
 
@@ -60,7 +60,7 @@ app.run(host="0.0.0.0", port=5000, debug=True)
 import os
 
 class Settings:
-    SECRET_KEY    = os.environ["SECRET_KEY"]
+    SECRET_KEY    = _secret_key()          # ver "Segredo ausente" abaixo
     DEBUG         = os.getenv("DEBUG", "false").lower() == "true"
     DATABASE_PATH = os.getenv("DATABASE_PATH", "loja.db")
     CORS_ORIGINS  = [o for o in os.getenv("CORS_ORIGINS", "").split(",") if o]
@@ -77,7 +77,36 @@ CORS(app, origins=settings.CORS_ORIGINS)
 app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG)
 ```
 
-Regras: segredo sem default (`os.environ[...]` falha rápido se faltar); valor inofensivo pode ter default; `.env.example` versionado com as chaves e sem os valores; `.env` no `.gitignore`.
+Regras: valor inofensivo pode ter default; `.env.example` versionado com as chaves e sem os valores; `.env` no `.gitignore`.
+
+### Segredo ausente: falhar ou avisar
+
+Um segredo com fallback no código é o mesmo segredo hardcoded com uma indireção a mais. Mas **fail-fast quebra o critério de a aplicação iniciar sem erros**: quem clona o repositório e roda o entry point sem `.env` recebe exceção no import, e o baseline da Fase 3 não sobe.
+
+Escolha pelo destino do projeto:
+
+| Situação | Comportamento |
+|---|---|
+| Serviço com deploy e configuração gerenciada | falhar no boot (`os.environ[...]`) |
+| Projeto que precisa rodar recém-clonado — o caso desta refatoração | gerar valor efêmero **e avisar em voz alta** |
+
+```python
+def _secret_key() -> str:
+    """Lê do ambiente; sem a variável, gera efêmera e avisa.
+
+    A chave muda a cada restart e toda sessão assinada é invalidada.
+    """
+    chave = os.environ.get("SECRET_KEY")
+    if chave:
+        return chave
+    _logger.warning(
+        "SECRET_KEY ausente: usando chave efêmera gerada no boot. "
+        "Sessões assinadas não sobrevivem ao restart. Defina SECRET_KEY em produção."
+    )
+    return os.urandom(32).hex()
+```
+
+**O que nunca é aceitável é o silêncio** — nem um default literal no código, nem um fallback que ninguém percebe. E o comentário tem que descrever o que o código faz: um comentário afirmando que o boot falha, acima de uma linha que gera chave aleatória, é pior que nenhum comentário.
 
 ---
 
@@ -677,3 +706,44 @@ cursor.execute("SELECT * FROM produtos ORDER BY id LIMIT ? OFFSET ?", (limite, o
 ```
 
 **Paginação muda o contrato** quando o baseline capturou a lista inteira. Duas saídas: manter o comportamento atual como default e aceitar `limit`/`offset` opcionais — o que preserva o contrato — ou declarar a mudança antes do gate. Prefira a primeira.
+
+---
+
+## PB-23 — Stub de integração → stub explícito, isolado e ruidoso
+*Corrige AP-33*
+
+Uma refatoração que preserva contrato **não pode inventar a integração que não existe**. Trocar o stub por um gateway real mudaria quais requisições são aprovadas — o baseline deixaria de bater e a mudança estaria fora das exceções declaradas. Então a transformação não é implementar: é parar de disfarçar.
+
+```js
+// antes — a decisão de cobrar é um caractere no meio de um ternário, dentro do handler
+let status = cc.startsWith("4") ? "PAID" : "DENIED";
+if (status === "DENIED") return res.status(400).send("Pagamento recusado");
+```
+
+```js
+// depois — mesma regra, agora nomeada, isolada do transporte e barulhenta
+const APPROVED_CARD_PREFIX = '4';   // stub: este projeto não integra gateway
+
+class PaymentService {
+    constructor({ gatewayKey = null, logger }) {
+        this.gatewayKey = gatewayKey;
+        if (!this.gatewayKey) {
+            logger.warn('PAYMENT_GATEWAY_KEY ausente: autorização rodando em modo stub');
+        }
+    }
+
+    authorize({ cardNumber }) {
+        return String(cardNumber).startsWith(APPROVED_CARD_PREFIX)
+            ? PAYMENT_STATUS.PAID
+            : PAYMENT_STATUS.DENIED;
+    }
+}
+```
+
+Três movimentos, todos invisíveis ao contrato:
+
+1. **Nomear** — a constante e o comentário dizem que é stub. Ninguém mais lê aquilo como integração.
+2. **Isolar** — a regra sai do handler para um serviço injetado. Quando o gateway real chegar, troca-se uma classe e nada mais.
+3. **Fazer barulho** — a ausência da credencial real vira aviso no boot, em vez de silêncio.
+
+O finding continua no relatório como `REQUER DECISÃO DE PRODUTO`. Implementar a integração é trabalho de produto, com contrato novo e decisão de quem paga a conta.
