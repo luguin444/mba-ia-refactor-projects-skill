@@ -296,7 +296,7 @@ O código-fonte não usa APIs deprecated de Node ou Express, mas a árvore de de
 
 ## Projeto 3 — task-manager-api (Python/Flask)
 
-13 arquivos · ~900 linhas · Flask 3.0 + SQLAlchemy 3.1 + marshmallow + CORS · SQLite
+15 arquivos · 1158 linhas · Flask 3.0 + SQLAlchemy 3.1 + marshmallow + CORS · SQLite
 
 **Resumo:** CRITICAL: 6 | HIGH: 6 | MEDIUM: 8 | LOW: 6 — total 26
 
