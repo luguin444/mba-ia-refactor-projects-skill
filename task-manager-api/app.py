@@ -1,34 +1,45 @@
+"""Composition root: lê a config, monta as dependências e registra as rotas."""
 from flask import Flask
 from flask_cors import CORS
+
+from config.logging_config import configure_logging
+from config.settings import settings
 from database import db
+from middlewares.error_handler import register_error_handlers
+from routes.category_routes import category_bp
+from routes.health_routes import health_bp
+from routes.report_routes import report_bp
 from routes.task_routes import task_bp
 from routes.user_routes import user_bp
-from routes.report_routes import report_bp
-import os, sys, json, datetime
 
-app = Flask(__name__)
+BLUEPRINTS = (health_bp, task_bp, user_bp, category_bp, report_bp)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'super-secret-key-123'
 
-CORS(app)
-db.init_app(app)
+def create_app() -> Flask:
+    configure_logging()
 
-app.register_blueprint(task_bp)
-app.register_blueprint(user_bp)
-app.register_blueprint(report_bp)
+    app = Flask(__name__)
+    app.config.from_object(settings)
 
-@app.route('/health')
-def health():
-    return {'status': 'ok', 'timestamp': str(datetime.datetime.now())}
+    CORS(app, origins=settings.CORS_ORIGINS)
+    db.init_app(app)
 
-@app.route('/')
-def index():
-    return {'message': 'Task Manager API', 'version': '1.0'}
+    for blueprint in BLUEPRINTS:
+        app.register_blueprint(blueprint)
 
-with app.app_context():
-    db.create_all()
+    register_error_handlers(app)
+    return app
+
+
+def init_database(app: Flask) -> None:
+    """Cria o schema. Acionada explicitamente, nunca por import."""
+    with app.app_context():
+        db.create_all()
+
+
+app = create_app()
+
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    init_database(app)
+    app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG)
