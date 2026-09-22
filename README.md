@@ -406,10 +406,17 @@ cd ../task-manager-api     && claude      # depois: /refactor-arch
 # 1. a aplicação sobe
 cd code-smells-project && PORT=5077 .venv/bin/python app.py
 
-# 2. o diff de contrato fechou
-cat .refactor-arch/baseline.json | python3 -m json.tool | head -20
-# a Fase 3 imprime o resultado endpoint a endpoint; divergências devem
-# corresponder às exceções declaradas antes do gate
+# 2. os endpoints respondem
+for p in / /produtos /produtos/1 /produtos/9999 /usuarios /pedidos /relatorios/vendas /health; do
+  printf '%-24s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:5077$p)"
+done
+# esperado: 200 em tudo, 404 em /produtos/9999
+
+# 3. o diff de contrato fechou
+# A Fase 3 imprime o resultado endpoint a endpoint e grava as capturas em
+# .refactor-arch/, que é ignorado pelo git — o diretório só existe depois de
+# rodar a skill, não vem no clone. Divergências devem corresponder exatamente
+# às exceções declaradas antes do gate.
 
 # 3. as regras de camada valem
 grep -rE "import sqlite3|from database" src/views/     # esperado: vazio
