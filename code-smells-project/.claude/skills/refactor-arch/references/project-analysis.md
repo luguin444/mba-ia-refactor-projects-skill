@@ -104,14 +104,18 @@ Localize quem exerce cada responsabilidade. Para cada uma, anote arquivo e linha
 | R3 | Decide regra de negócio | cálculo de total, faixa de desconto, transição de estado, validação de domínio, condição sobre entidade |
 | R4 | Trata HTTP | registro de rota, leitura de `request`, montagem de `response`, status code |
 
-Depois classifique:
+Depois classifique. **Aplique as regras na ordem — a primeira que casar é a classificação.** A ordem não é decorativa: é ela que separa os dois casos difíceis.
 
-| Situação | Classificação |
-|---|---|
-| R1–R4 no mesmo arquivo, ou em 2–4 arquivos sem fronteira | **Monolítica** |
-| Pastas por camada existem, mas R3 aparece dentro de R4, ou R2 dentro de R4 | **Camadas decorativas** |
-| Pastas por camada existem e cada R vive na sua, mas uma camada concentra domínios demais | **MVC parcial** |
-| Cada R na sua camada e as regras de `mvc-guidelines.md` passam | **MVC** |
+| # | Condição | Classificação |
+|---|---|---|
+| 1 | As regras L1–L7 de `mvc-guidelines.md` passam | **MVC** |
+| 2 | Existe fronteira por camada **e** ao menos um símbolo na camada correta que nunca é chamado, com a lógica equivalente duplicada na camada errada | **Camadas decorativas** |
+| 3 | Duas ou mais das quatro responsabilidades colidem num mesmo arquivo | **Monolítica** |
+| 4 | Nenhuma das anteriores | **MVC parcial** |
+
+**Nome de arquivo não é fronteira.** `models.py`, `controllers.py` e `database.py` soltos na raiz não constituem camadas — se a regra de negócio mora no model e a validação mora no controller, duas responsabilidades colidem e a regra 3 se aplica. Fronteira é módulo ou pacote com limite respeitado, não rótulo.
+
+Por que a ordem importa: um projeto com `routes/` acumulando query, regra e HTTP tem três responsabilidades colidindo e cairia na regra 3 — mas se ele tem um método na camada certa que ninguém chama, a regra 2 dispara primeiro e classifica certo. Inverter a ordem faz todo projeto com camadas decorativas ser reportado como monolítico, e a Fase 3 aplica a estratégia errada.
 
 **Camadas decorativas** é o caso mais traiçoeiro e o mais comum em projeto que já sofreu uma tentativa de organização. Dois sinais confirmam:
 

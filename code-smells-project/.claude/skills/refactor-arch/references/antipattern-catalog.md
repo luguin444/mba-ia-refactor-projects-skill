@@ -43,7 +43,8 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 **Transformação:** → PB-05
 
 ### AP-06 — God class / God module
-**Sinal:** um arquivo ou classe concentra três ou mais das quatro responsabilidades (conexão, query, regra de negócio, HTTP), ou atende três ou mais domínios distintos.
+**Sinal:** um arquivo ou classe concentra duas ou mais das quatro responsabilidades (conexão, query, regra de negócio, HTTP), ou atende três ou mais domínios distintos.
+**Severidade:** **CRITICAL** quando o mesmo arquivo concentra acesso a dados **e** roteamento HTTP — o colapso completo das camadas. **HIGH** quando concentra duas responsabilidades sem juntar dados e roteamento, ou quando atende três ou mais domínios sem o colapso. Declare no finding qual das duas condições se aplica, e reporte na seção da severidade resultante.
 **Manifestações:** classe chamada `Manager`, `Helper`, `Service` sem qualificador de domínio · módulo com funções de 4 entidades diferentes · arquivo de rota entre os maiores do projeto.
 **Transformação:** → PB-03
 
@@ -186,8 +187,8 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 
 ### AP-27 — Magic numbers e literais repetidos
 **Sinal:** valor de domínio cravado no meio da lógica, ou lista de valores válidos repetida.
-**Manifestações:** faixas de desconto `10000 / 5000 / 1000` com multiplicadores soltos · lista de status válidos repetida em cinco arquivos · limites de tamanho literais.
-**Agrava:** se existe uma constante definida para isso e os handlers repetem o literal mesmo assim, some ao AP-14.
+**Manifestações:** faixas de desconto `10000 / 5000 / 1000` com multiplicadores soltos · lista de status válidos repetida em cinco arquivos · limites de tamanho literais · número de versão cravado em dois ou mais lugares · metadado de ambiente fixo no código e **incoerente com o estado real do processo** (um `/health` que se declara `"ambiente": "producao"` enquanto reporta `"debug": true`).
+**Agrava:** se existe uma constante definida para isso e os handlers repetem o literal mesmo assim, some ao AP-14. Metadado incoerente é pior que magic number comum — o endpoint de diagnóstico passa a mentir sobre o estado do serviço, que é exatamente o que ele existe para não fazer.
 **Transformação:** → PB-19
 
 ### AP-28 — `print` como logging
