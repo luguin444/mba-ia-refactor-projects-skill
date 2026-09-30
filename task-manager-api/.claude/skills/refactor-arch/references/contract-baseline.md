@@ -65,6 +65,24 @@ A mesma ordem nas duas capturas, sempre.
 
 ---
 
+## 3b. Os dois perfis de captura
+
+Quando a Fase 3 vai aplicar o PB-24 e proteger rotas, uma captura só não basta — e a solução não é desistir de proteger.
+
+**Perfil autenticado.** A lista de requisições ganha um passo de login no começo; o token da resposta é guardado e enviado em `Authorization: Bearer` nas demais. Este é o contrato que **precisa bater idêntico** com o original: mesmos status, mesmos corpos. É a prova de que "os endpoints originais continuam respondendo corretamente".
+
+**Perfil anônimo.** As mesmas rotas protegidas, sem token. Aqui o esperado é **401**, e essa divergência é declarada. É a prova de que a correção funciona.
+
+Na captura da aplicação **original** não há login que emita credencial — é justamente o achado. Então:
+
+1. capture o baseline anônimo contra o original, como de costume;
+2. depois de refatorar, capture o perfil autenticado e compare **com o baseline original** — é aí que o contrato tem que bater;
+3. capture o perfil anônimo e confirme 401 nas rotas protegidas.
+
+Se o projeto original não tem usuário com senha conhecida, o seed é a fonte: use as credenciais que ele cria. Se a checagem de papel de admin exigir uma coluna que não existe no schema, adicioná-la é invisível ao contrato — mas o seed precisa criar ao menos um admin, ou a captura autenticada não consegue exercitar as rotas administrativas.
+
+**O token é volátil.** Ele muda a cada execução — `iat`, `exp` e a assinatura. Declare o campo em `volatileFields`, senão toda resposta que o devolve acusa divergência falsa. Mascare o **valor**, nunca a presença: se o campo desaparecer da resposta, isso é regressão e o diff tem que pegar.
+
 ## 4. Gravar
 
 `.refactor-arch/baseline.json`:
@@ -133,6 +151,7 @@ GET  /relatorios/vendas   200  DIFF
 | **Exceção declarada** — bate com o que o relatório da Fase 2 listou antes do gate | esperada, segue |
 | **Regressão** — mudança não prevista | falha: corrija e recapture |
 | **Conserto de bug** — o baseline capturou comportamento errado que a refatoração corrigiu | **apresente ao humano com os dois valores e espere decisão.** Nunca silencie e nunca reverta sozinho |
+| **401 em rota protegida** — anônimo perdeu acesso que tinha | esperada **se** a rota constar na declaração rota-por-rota feita antes do gate; se não constar, é escopo que vazou e precisa voltar ao humano |
 
 O terceiro caso é frequente e é sinal de bom trabalho: unificar validação duplicada faz um handler que estourava 500 passar a devolver 400 como o irmão. É melhoria — mas quem decide se entra agora é o humano, não a skill.
 

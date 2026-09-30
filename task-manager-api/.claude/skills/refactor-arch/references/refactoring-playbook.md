@@ -1,6 +1,6 @@
 # Playbook de refatoração
 
-Usado na **Fase 3**. 23 transformações, referenciadas pelo catálogo.
+Usado na **Fase 3**. 25 transformações, referenciadas pelo catálogo.
 
 Os exemplos usam Python e JavaScript porque são as stacks dos projetos de referência. A transformação é a mesma em qualquer linguagem — traduza o idioma, não a ideia.
 
@@ -747,3 +747,136 @@ Três movimentos, todos invisíveis ao contrato:
 3. **Fazer barulho** — a ausência da credencial real vira aviso no boot, em vez de silêncio.
 
 O finding continua no relatório como `REQUER DECISÃO DE PRODUTO`. Implementar a integração é trabalho de produto, com contrato novo e decisão de quem paga a conta.
+
+---
+
+## PB-24 — Autenticação ausente → token assinado e middleware
+*Corrige AP-07*
+
+Três peças: emitir credencial verificável no login, verificar em middleware, e declarar rota por rota o que fica protegido.
+
+**Onde mora.** Em `middlewares/`. Rota não sabe autenticar; controller não sabe autenticar. A rota declara *que* exige, o middleware sabe *como* verificar.
+
+### Emitir
+
+```python
+# antes — o login valida a senha e devolve nada apresentável
+return jsonify({'user': user.to_dict(), 'token': 'fake-jwt-token-' + str(user.id)}), 200
+```
+
+```python
+# depois — src/services/token_service.py
+import jwt                                   # PyJWT; dependência nova, justificada
+from datetime import datetime, timedelta, timezone
+
+TTL = timedelta(hours=12)
+
+def emitir(user) -> str:
+    agora = datetime.now(timezone.utc)
+    return jwt.encode(
+        {'sub': str(user.id), 'role': user.role, 'iat': agora, 'exp': agora + TTL},
+        settings.SECRET_KEY,
+        algorithm='HS256',
+    )
+
+def verificar(token: str) -> dict:
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+```
+
+```js
+// depois — Node: jsonwebtoken, ou HMAC com node:crypto se preferir zero dependência
+const jwt = require('jsonwebtoken');
+const emitir = (user) =>
+  jwt.sign({ sub: String(user.id), role: user.role }, env.jwtSecret, { expiresIn: '12h' });
+```
+
+**Requisitos do token, não negociáveis:** assinado com segredo vindo do ambiente; com expiração; e o papel dentro do payload, para a checagem de autorização não precisar de round-trip ao banco.
+
+### Verificar
+
+```python
+# depois — src/middlewares/auth.py
+from functools import wraps
+
+def requer_autenticacao(f):
+    @wraps(f)
+    def _wrapper(*args, **kwargs):
+        header = request.headers.get('Authorization', '')
+        if not header.startswith('Bearer '):
+            raise UnauthorizedError('Credencial ausente')
+        try:
+            g.claims = token_service.verificar(header[7:])
+        except jwt.PyJWTError:
+            raise UnauthorizedError('Credencial inválida')
+        return f(*args, **kwargs)
+    return _wrapper
+
+def requer_admin(f):
+    @wraps(f)
+    @requer_autenticacao
+    def _wrapper(*args, **kwargs):
+        if g.claims.get('role') != 'admin':
+            raise ForbiddenError('Requer perfil administrativo')
+        return f(*args, **kwargs)
+    return _wrapper
+```
+
+```js
+// depois — Express: middleware por rota, não global
+router.get('/admin/financial-report', requerAdmin, controller.report);
+router.delete('/users/:id',           requerAutenticacao, controller.remove);
+router.post('/checkout',              controller.checkout);   // público, deliberado
+```
+
+### Decidir o escopo
+
+Percorra as rotas e classifique. Escreva a tabela **no relatório**, antes do gate:
+
+| Categoria | Tratamento |
+|---|---|
+| Escreve ou apaga dado | exige credencial |
+| Lê dado de terceiro (lista de usuários, pedidos alheios, relatório agregado) | exige credencial |
+| Relatório ou painel administrativo | exige credencial **e** papel de admin |
+| Login, cadastro, health, raiz | público |
+| Único caminho de entrada do usuário no sistema — checkout que cria a conta, cadastro | **público**, e a recomendação diz por quê |
+
+A última linha é a que se erra. Um fluxo de compra que cria a conta do cliente não pode exigir token: para comprar seria preciso ter conta, e nada mais no sistema cria conta. Proteger ali não fecha vulnerabilidade — fecha a porta de entrada. Declare como decisão aplicada, não como pendência.
+
+### Efeito no contrato
+
+Para o cliente **autenticado**, nada muda: mesmos status, mesmos corpos. Para o **anônimo**, as rotas protegidas vão de 200 para 401. É exceção de contrato declarada, rota por rota — e é o conserto, não regressão. O baseline precisa capturar os dois perfis (ver `contract-baseline.md`).
+
+Hashes de senha existentes: se o projeto grava a senha via um método (`set_password`), trocar a implementação do método já muda o seed. Não invente caminho de migração legado sem confirmar que existe dado legado — ver PB-21.
+
+---
+
+## PB-25 — Privilégio vindo do cliente → default no servidor
+*Corrige AP-34*
+
+```python
+# antes — routes/user_routes.py, cadastro público
+role = data.get('role', 'user')
+if role not in ['user', 'admin', 'manager']:
+    return jsonify({'error': 'Role inválido'}), 400
+user.role = role
+```
+
+A validação aqui é pior que inútil: ela confere se `admin` está na lista de valores aceitos e **aceita**. Valida o formato do escalonamento.
+
+```python
+# depois — o cadastro público não decide papel
+user.role = UserRole.USER.value          # sempre; o campo do corpo é ignorado
+
+# e a alteração de papel exige quem já pode fazê-la
+@requer_admin
+def alterar_papel(user_id, novo_papel):
+    ...
+```
+
+Três regras:
+
+1. **Ignore o campo, não rejeite a requisição.** Devolver 400 quando alguém manda `role` quebraria o contrato de quem já mandava o campo; ignorar preserva o status e neutraliza o efeito. Só o valor gravado muda — e esse valor *é* a vulnerabilidade.
+2. **O default vive no servidor**, como constante da camada de domínio.
+3. **A troca de papel é uma operação própria**, atrás de autorização.
+
+Vale para qualquer campo que confira poder ou desconto: `is_admin`, `permissions`, `tier`, `plan`, `price`, `credit`. Se o cliente manda e o servidor grava sem perguntar quem é, é o mesmo anti-pattern.

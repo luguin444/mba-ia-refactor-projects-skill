@@ -1,6 +1,6 @@
 # Catálogo de anti-patterns
 
-Usado na **Fase 2**. 33 entradas.
+Usado na **Fase 2**. 34 entradas.
 
 Cada entrada descreve o anti-pattern por **sinal observável**, não por sintaxe de uma linguagem. A tabela de manifestações mostra como o mesmo sinal aparece em cada stack. Suportar uma stack nova significa acrescentar uma linha — o sinal e a severidade não mudam.
 
@@ -49,9 +49,19 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 **Transformação:** → PB-03
 
 ### AP-07 — Autenticação ausente ou simulada
-**Sinal:** rotas que alteram ou expõem dados sem verificação de identidade; **ou** um endpoint de login que não emite credencial verificável; **ou** token previsível ou não assinado.
-**Manifestações:** `'token': 'fake-jwt-token-' + str(user.id)` · login que valida a senha e devolve o usuário sem sessão · nenhuma rota lendo header de autorização · cadastro público que aceita `role` do body (escalonamento de privilégio).
-**Não corrigir automaticamente.** Marque `REQUER DECISÃO DE PRODUTO` — implementar auth faria toda rota responder 401 e quebraria o contrato. Descreva a transformação sem aplicá-la.
+**Sinal:** rotas que alteram dados ou expõem dado de terceiro sem verificação de identidade; **ou** um endpoint de login que não emite credencial verificável; **ou** token previsível ou não assinado.
+**Severidade:** **CRITICAL** quando alguma rota exposta devolve dado de outro usuário ou permite escrita destrutiva. **HIGH** quando o acesso é apenas de leitura de dado não sensível. Declare qual condição se aplica.
+**Manifestações:** `'token': 'fake-jwt-token-' + str(user.id)` · login que valida a senha e devolve o usuário sem emitir nada · nenhuma rota lendo header de autorização · rota `/admin` pública.
+**Corrigir.** Esta entrada já não é decisão de produto: o código diz quais rotas expõem dado de terceiro e quais fazem escrita, e isso basta para decidir o que proteger. O que a recomendação precisa declarar, **rota por rota**, é quais passam a exigir credencial e quais permanecem públicas com o motivo — um fluxo de cadastro ou de compra que é o único caminho de entrada do usuário permanece público, e isso se escreve na recomendação, não se omite.
+**Transformação:** → PB-24
+
+### AP-34 — Privilégio atribuído por entrada do cliente
+**Sinal:** campo que determina papel, permissão, plano, limite ou preço lido do corpo ou da query da requisição e persistido sem verificar quem está pedindo.
+**Severidade:** **CRITICAL.** É escalonamento de privilégio: não exige falha em outra camada nem conhecimento prévio, só um campo a mais no JSON.
+**Manifestações:** Python `role = data.get('role', 'user')` seguido de `user.role = role` num cadastro público · JS `{ plan: req.body.plan }` · geral: `is_admin`, `permissions`, `tier`, `discount` ou `price` vindos do cliente.
+**Independente do AP-07.** Corrigir isto **não exige autenticação nenhuma** — basta parar de ler o campo do corpo e usar o default do servidor. Reporte separado, mesmo quando o AP-07 também estiver presente; empacotar os dois num finding só faz a correção trivial ser adiada junto com a difícil.
+**Como confirmar:** dispare o cadastro público com o campo privilegiado no corpo e leia o registro criado. Se o valor entrou, o finding existe.
+**Transformação:** → PB-25
 
 ### AP-08 — Modo debug habilitado em bind público
 **Sinal:** flag de debug ou verbose ligada junto com bind em interface não-local.

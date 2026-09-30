@@ -66,9 +66,17 @@ Phase 2 complete. Proceed with refactoring (Phase 3)? [y/n]
 - app.py:59-78 — endpoint POST /admin/query removido (AP-02)
 - models/user.py:21 — campo `password` removido de User.to_dict() (AP-04)
 - src/AppManager.js:45 — log com número de cartão e chave removido (AP-04)
+- rotas que passam a exigir credencial (AP-07), anônimo 200 → 401:
+    POST/PUT/DELETE /produtos · PUT /pedidos/<id>/status · GET /usuarios
+    GET /pedidos · GET /pedidos/usuario/<id>
+  permanecem públicas, deliberadamente:
+    / · /health · GET /produtos · GET /produtos/<id> · POST /usuarios · POST /login
+    (cadastro e login são o único caminho de entrada do usuário no sistema)
 ```
 
-**Requires Product Decision.** Findings cuja correção exigiria mudar o comportamento da API — tipicamente AP-07. Descreva a transformação e diga por que não foi aplicada.
+Quando houver mudança de autenticação, a lista **rota por rota** é obrigatória, nos dois sentidos: o que passa a exigir credencial e o que permanece público com o motivo. Escopo implícito é o que faz o humano aprovar uma coisa e receber outra.
+
+**Requires Product Decision.** Reservado ao que **não é dedutível do código** — ver a seção correspondente no `SKILL.md`. Autenticação, token previsível e privilégio vindo do cliente **não** entram aqui: são corrigidos. Se esta seção contiver um finding cuja própria recomendação já descreve em detalhe o que fazer, a classificação está errada.
 
 **O gate é a última linha.** Depois dele, nada. Não antecipe a estrutura nova, não comece a refatorar, não sugira que já começou.
 

@@ -10,7 +10,7 @@ Usado na **Fase 3**. Define para onde o código vai e como verificar que chegou 
 | **models** | Representa a entidade e conversa com a persistência. Um módulo por domínio. | Importar nada de HTTP. Conter regra de negócio que atravessa entidades. |
 | **controllers** | Orquestra o fluxo: valida entrada, chama a regra, monta a resposta. | Montar query ou SQL. Conter cálculo de domínio. |
 | **views / routes** | Registra caminho, método e binding para o controller. Camada mais fina. | Importar driver de banco ou ORM. Conter lógica de qualquer tipo. |
-| **middlewares** | Preocupações transversais: erro centralizado, CORS, logging, autenticação. | Conter regra de domínio. |
+| **middlewares** | Preocupações transversais: erro centralizado, CORS, logging, **autenticação e autorização**. | Conter regra de domínio. |
 | **entry point** | Composition root: lê config, monta as dependências, registra rotas e middlewares, sobe o servidor. | Definir rota. Conter lógica. |
 
 Duas camadas **opcionais**, criadas só quando o volume justifica:
@@ -49,6 +49,7 @@ Cada uma é checável por busca de texto. A Fase 3 não termina enquanto todas n
 | L5 | Toda resposta de erro passa pelo middleware central | contar blocos de captura nos controllers — devem ser exceção, não regra |
 | L6 | Nenhuma camada vazia ou não referenciada | cada módulo criado é importado por alguém |
 | L7 | Entry point não define rota nem lógica | ler o arquivo — só composição |
+| L8 | Toda rota que escreve ou expõe dado de terceiro passa por middleware de auth | listar as rotas e conferir o decorator/middleware de cada uma contra a declaração feita no relatório |
 
 ## Adaptação ao ponto de partida
 
@@ -63,6 +64,6 @@ A Fase 1 classificou a arquitetura. O trabalho da Fase 3 muda conforme a classif
 ## O que não fazer
 
 - **Não renomeie rota, campo de resposta ou status code.** O contrato é preservado; as únicas exceções estão no SKILL.md e foram declaradas antes do gate.
-- **Não adicione autenticação.** AP-07 fica marcado `REQUER DECISÃO DE PRODUTO`.
+- **Autenticação mora em `middlewares/`.** A rota declara *que* exige credencial; o middleware sabe *como* verificar. Rota e controller nunca leem header de autorização nem decodificam token — ver PB-24.
 - **Não introduza dependência nova sem necessidade.** Trocar hash de senha justifica; trocar o framework web, não.
 - **Não mova o que já está certo.** Movimentação sem ganho é risco de regressão sem contrapartida.

@@ -17,6 +17,8 @@ Funciona em qualquer stack. Nada aqui assume Python, Node ou framework específi
 4. **O contrato HTTP é preservado.** As únicas exceções permitidas estão na seção "Exceções de contrato" abaixo, e cada uma precisa ser declarada no relatório antes do gate.
 5. **Todo finding tem `arquivo:linha` verificado.** Abra o arquivo e confirme a linha antes de escrever o finding. Número de linha errado invalida o achado.
 6. **Não invente severidade.** Use a escala da seção abaixo. Na dúvida entre dois níveis, a severidade se ancora no *pior caso plausível*, não no primeiro efeito que vier à cabeça.
+7. **A recomendação escrita é um compromisso.** O que a recomendação de um finding diz que será feito, a Fase 3 faz. Nunca prometa um escopo no relatório e entregue outro — se você julga que parte do escopo não deve ser aplicada, a recomendação declara isso, com o motivo, antes do gate. Divergência entre o que o relatório promete e o que o código recebe é o pior defeito que esta skill pode ter: o humano aprovou uma coisa e recebeu outra.
+8. **Todo finding CRITICAL e HIGH é corrigido.** Inclusive autenticação ausente, inclusive escalonamento de privilégio. Ver "O que pode ficar sem correção" abaixo.
 
 ## Escala de severidade
 
@@ -92,15 +94,29 @@ Não prossiga sem um "y" explícito. "Parece bom", silêncio ou uma pergunta do 
 
 ### Exceções de contrato
 
-Três classes de correção mudam o contrato porque o elemento exposto *é* o achado. Só estas são permitidas, e cada uma precisa aparecer nominalmente no relatório antes do gate:
+Quatro classes de correção mudam o contrato porque o elemento exposto *é* o achado. Só estas são permitidas, e cada uma precisa aparecer nominalmente no relatório antes do gate:
 
 | Exceção | Ação |
 |---|---|
 | Endpoint que existe apenas como vulnerabilidade (executor de SQL arbitrário, reset de banco sem auth) | Removido |
 | Campo sensível no corpo da resposta (senha, hash, chave, token) | Campo removido, resto do objeto intacto |
 | Dado sensível gravado em log (cartão, credencial, segredo) | Log removido ou mascarado |
+| Rota sensível sem verificação de identidade | Passa a exigir credencial: anônimo vai de 200 para **401** |
 
-**A Fase 3 não adiciona autenticação.** Findings de autenticação ausente ou simulada ficam no relatório marcados `REQUER DECISÃO DE PRODUTO`, com a transformação descrita e não aplicada — implementá-la faria toda rota responder 401 e quebraria o contrato que esta skill se compromete a preservar.
+A quarta exige cuidado extra na declaração: liste **rota por rota** quais passam a exigir credencial, e quais permanecem públicas com o motivo. Um cliente autenticado continua recebendo exatamente o que recebia antes — é isso que a captura autenticada do baseline prova.
+
+### O que pode ficar sem correção
+
+`REQUER DECISÃO DE PRODUTO` é reservado ao que **não é dedutível do código**. O teste: se você precisa saber algo que só o dono do produto sabe, é decisão de produto. Se você só precisa ler o código, é trabalho.
+
+| Cabe em decisão de produto | Não cabe |
+|---|---|
+| Quais origens o CORS deve liberar | Autenticação ausente — o código diz quais rotas expõem dado de terceiro |
+| Se um usuário com pagamento registrado pode ser apagado | Token previsível ou não assinado |
+| Qual o tamanho de página correto numa listagem | Privilégio atribuído por entrada do cliente |
+| Qual gateway externo contratar | Qualquer coisa que a própria recomendação descreve em detalhe |
+
+**Correção ser disruptiva não é motivo para diferir.** Proteger rotas faz o cliente anônimo receber 401, e isso é o conserto funcionando — não uma regressão. A última linha da recomendação nunca é "exige decisão de produto" quando a linha anterior já descreveu exatamente o que fazer.
 
 ---
 
