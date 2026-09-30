@@ -412,6 +412,8 @@ tasks = db.session.execute(select(Task).where(Task.status == 'pending')).scalars
 
 Dependência deprecated no lockfile: atualize para a versão corrente, ou troque o pacote quando não houver versão saudável (`sqlite3` → `node:sqlite` no Node 22+).
 
+**Subir versão por causa de CVE é obrigatório, e muda comportamento.** Um major de biblioteca de segurança altera semântica — `flask-cors` 5→6 mudou casamento de origem, que é o próprio motivo dos CVEs. Então: suba a versão, reinstale, e **recapture o contrato**. Se alguma resposta mudar, a divergência é declarada e apresentada; não deixe de subir por medo do diff, e não suba sem recapturar. Atualize o pin no manifesto, nunca só o ambiente — pin antigo com ambiente novo é a pior das duas situações, porque o próximo `pip install` reintroduz o CVE.
+
 ---
 
 ## PB-12 — Dict montado à mão → serializer único

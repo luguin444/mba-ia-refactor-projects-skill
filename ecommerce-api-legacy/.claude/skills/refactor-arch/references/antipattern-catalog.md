@@ -161,7 +161,35 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 | Node 22+ | pacote `sqlite3` nativo com deps podres | `node:sqlite`, `better-sqlite3` |
 | npm | pacote com campo `deprecated` no lock | versão corrente ou substituto |
 
-**Detector mais barato:** rode a aplicação uma vez e leia os `DeprecationWarning` do boot; rode o install e leia os `npm warn deprecated`.
+**Severidade:** **MEDIUM** para deriva de versão sem vulnerabilidade conhecida, ou API obsoleta que ainda funciona. **HIGH** quando alguma dependência fixada tem CVE conhecido. **CRITICAL** quando o CVE atinge um mecanismo de segurança que o projeto usa de forma permissiva — CVE de casamento de origem num projeto com CORS liberado para todas as origens, por exemplo, porque as duas falhas se somam. Declare qual condição se aplica e cite os identificadores.
+
+### Os três passos são obrigatórios, não oportunistas
+
+O erro clássico desta entrada é esperar que um `DeprecationWarning` apareça. Boot silencioso **não é** evidência de ausência: uma dependência pode estar três versões atrás, com CVE, e não emitir aviso nenhum. Execute os três:
+
+**1. Deriva de versão.** Para cada dependência direta, compare a versão fixada com a corrente. Nunca reporte "nenhuma dependência desatualizada" sem ter rodado isto.
+
+```bash
+pip index versions <pacote>          # Python — a primeira linha é a corrente
+npm outdated                         # Node
+```
+
+**2. Vulnerabilidade conhecida.** Consulte a base pública para cada dependência direta, na versão fixada. É o passo que separa higiene de segurança.
+
+```bash
+# Python — OSV.dev, sem instalar nada
+curl -s -X POST https://api.osv.dev/v1/query -H 'Content-Type: application/json' \
+  -d '{"package":{"name":"flask-cors","ecosystem":"PyPI"},"version":"5.0.1"}' \
+  | python3 -c "import sys,json; [print(v['id'], v.get('summary','')) for v in json.load(sys.stdin).get('vulns',[])]"
+
+# Node
+npm audit --json
+```
+
+**3. Sinais no código e no lockfile.** Os `DeprecationWarning` do boot, os `npm warn deprecated` do install, o campo `"deprecated"` no lockfile, e as APIs da tabela acima.
+
+Um finding de AP-19 só pode ser omitido depois de os três passos terem rodado e voltado vazios. Se rodar o passo 2 não for possível no ambiente, diga isso no relatório em vez de concluir que não há vulnerabilidade.
+
 **Transformação:** → PB-11
 
 ### AP-20 — Duplicação entre handlers irmãos
