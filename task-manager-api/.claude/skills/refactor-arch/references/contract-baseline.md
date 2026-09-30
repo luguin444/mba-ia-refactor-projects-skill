@@ -42,6 +42,10 @@ As duas capturas precisam partir do mesmo estado de banco, ou todo diff é ruíd
 
 Procure o `.db` em toda a árvore — alguns frameworks escrevem em subpasta (`instance/` no Flask-SQLAlchemy), não na raiz.
 
+**Banco deixado por uma versão mais nova do próprio projeto é armadilha silenciosa.** Se o projeto já foi refatorado antes e o arquivo de banco sobrou, ele pode conter dados que o código atual não sabe ler — senhas derivadas com scrypt num código que compara texto plano ou MD5, colunas que o schema antigo não tem, valores em formato novo. O sintoma é login falhando ou endpoint devolvendo vazio, **sem erro nenhum**, e o diagnóstico natural é acusar o código.
+
+Antes de capturar, apague o arquivo de banco e deixe o próprio projeto recriá-lo pelo caminho dele. Se quiser confirmar que o estado é do código atual, inspecione um registro: um hash de 32 caracteres hexadecimais é MD5, um com prefixo `scrypt:` ou `$2b$` é derivação moderna. Divergência entre o formato gravado e o que o código espera significa banco de outra versão.
+
 ---
 
 ## 3. Montar a lista de requisições

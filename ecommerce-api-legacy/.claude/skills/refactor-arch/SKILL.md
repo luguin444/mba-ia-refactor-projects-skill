@@ -80,7 +80,7 @@ Leia `references/antipattern-catalog.md` e `references/report-template.md`.
 1. Para cada anti-pattern do catálogo, procure o sinal nos lugares indicados no campo `Onde procurar` — que inclui manifesto e lockfile, não só código-fonte.
 2. Confirme `arquivo:linha` abrindo o arquivo. Agrupe ocorrências do mesmo anti-pattern num finding só, listando as linhas.
 3. Classifique pela severidade do catálogo.
-4. Monte o relatório no formato de `report-template.md`, ordenado CRITICAL → HIGH → MEDIUM → LOW.
+4. Monte o relatório no formato de `report-template.md`, ordenado CRITICAL → HIGH → MEDIUM → LOW. **O cabeçalho repete o bloco da Fase 1 por inteiro** — incluindo `Domain`, `Architecture`, `Routes` e `DB tables`. O stdout se perde; o relatório é o único registro durável da classificação que determinou a estratégia da Fase 3.
 5. Liste as **exceções de contrato** que a Fase 3 vai aplicar e os findings marcados `REQUER DECISÃO DE PRODUTO`, que não serão corrigidos.
 6. Salve o relatório conforme a seção "Onde salvar" de `report-template.md` — na raiz do git (`git rev-parse --show-toplevel`), não dentro do projeto auditado.
 

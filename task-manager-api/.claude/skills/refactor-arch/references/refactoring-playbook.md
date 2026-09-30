@@ -821,7 +821,22 @@ def requer_admin(f):
             raise ForbiddenError('Requer perfil administrativo')
         return f(*args, **kwargs)
     return _wrapper
+
+
+def requer_dono_ou_admin(nome_do_parametro):
+    """Compara o `sub` do token com o id no caminho. Admin passa sempre."""
+    def _decorador(f):
+        @wraps(f)
+        @requer_autenticacao
+        def _wrapper(*args, **kwargs):
+            if g.claims.get('role') != 'admin' and str(kwargs.get(nome_do_parametro)) != g.claims.get('sub'):
+                raise ForbiddenError('Recurso de outro usuário')
+            return f(*args, **kwargs)
+        return _wrapper
+    return _decorador
 ```
+
+**Os três níveis são obrigatórios quando existe id de sujeito no caminho.** Middleware com apenas `autenticado` e `admin` produz o buraco descrito na tabela acima.
 
 ```js
 // depois — Express: middleware por rota, não global
@@ -832,17 +847,43 @@ router.post('/checkout',              controller.checkout);   // público, delib
 
 ### Decidir o escopo
 
-Percorra as rotas e classifique. Escreva a tabela **no relatório**, antes do gate:
+**A classificação é uma linha por rota, nunca um grupo.** Monte a tabela abaixo mentalmente, e depois escreva no relatório **cada rota numa linha própria, com o nível e o motivo**:
+
+```
+método caminho                    nível            motivo
+GET    /users                     admin            lista nome e e-mail de todos
+GET    /users/<id>                dono ou admin    dado de outro usuário
+GET    /users/<id>/tasks          dono ou admin    tarefas de outro usuário
+GET    /reports/summary           admin            relatório agregado nomeando cada usuário
+GET    /tasks                     credencial       quadro da equipe, não de um sujeito
+POST   /tasks                     credencial       escrita em dado compartilhado
+PUT    /users/<id>                dono ou admin    edita outro usuário
+PUT    /users/<id> com role       admin            altera privilégio
+POST   /users                     público          único caminho de entrada
+POST   /login                     público          emite a credencial
+GET    /health                    público          liveness, sem dado de usuário
+```
+
+**Agrupar esconde o erro.** Escrever *"401: GET /users · GET /tasks · GET /reports/summary"* parece completo e não é: as três leem coisas diferentes — uma lista e-mails de todos, outra é quadro compartilhado, a terceira é relatório agregado. Só a linha por rota força a pergunta "de quem é esse dado?" para cada uma.
+
+**A regra de dono vale para leitura tanto quanto para escrita.** O erro frequente é proteger `PUT` e `DELETE` com dono-ou-admin e deixar `GET` com credencial simples. Ler o dado de outra pessoa é exatamente o vazamento que a autorização existe para impedir — e quando o cadastro é público, "autenticado" custa uma requisição, então credencial simples em leitura de dado de terceiro é PII aberta a quem se registrar.
+
+Use esta tabela como critério:
 
 | Categoria | Tratamento |
 |---|---|
-| Escreve ou apaga dado | exige credencial |
-| Lê dado de terceiro (lista de usuários, pedidos alheios, relatório agregado) | exige credencial |
+| Opera sobre recurso identificado por id de outro sujeito — `/users/<id>`, `/pedidos/usuario/<id>`, `/tasks/<id>` | exige credencial **e** ser dono do recurso ou admin |
+| Escreve ou apaga dado que não pertence a ninguém em particular — catálogo, categorias | exige credencial |
+| Lê dado de terceiro em massa (lista de usuários, pedidos alheios, relatório agregado) | exige credencial **e** papel de admin |
 | Relatório ou painel administrativo | exige credencial **e** papel de admin |
 | Login, cadastro, health, raiz | público |
 | Único caminho de entrada do usuário no sistema — checkout que cria a conta, cadastro | **público**, e a recomendação diz por quê |
 
-A última linha é a que se erra. Um fluxo de compra que cria a conta do cliente não pode exigir token: para comprar seria preciso ter conta, e nada mais no sistema cria conta. Proteger ali não fecha vulnerabilidade — fecha a porta de entrada. Declare como decisão aplicada, não como pendência.
+**A primeira linha é a que se esquece nas escritas, e a terceira nas leituras. Os dois esquecimentos são silenciosos.** "Exige credencial" numa rota que recebe um id de usuário no caminho fecha o anônimo e deixa o buraco aberto para qualquer pessoa logada: um cliente comum apaga a conta do admin, lê o pedido de outro, edita a task de terceiro. O teste é mecânico — **toda rota cujo caminho contém um id de sujeito precisa de checagem de dono, não só de credencial.** Se o middleware só tem "autenticado" e "admin", falta um terceiro: "dono ou admin", que compara o `sub` do token com o id do caminho.
+
+Declare os três níveis separadamente no relatório. Uma rota listada como "exige credencial" quando precisava de dono-ou-admin é subdeclaração: o humano aprova entendendo que o recurso está protegido, e ele não está.
+
+A última linha, a do único caminho de entrada, é a outra que se erra. Um fluxo de compra que cria a conta do cliente não pode exigir token: para comprar seria preciso ter conta, e nada mais no sistema cria conta. Proteger ali não fecha vulnerabilidade — fecha a porta de entrada. Declare como decisão aplicada, não como pendência.
 
 ### Efeito no contrato
 

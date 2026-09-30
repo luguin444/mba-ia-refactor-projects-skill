@@ -51,7 +51,7 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 ### AP-07 — Autenticação ausente ou simulada
 **Sinal:** rotas que alteram dados ou expõem dado de terceiro sem verificação de identidade; **ou** um endpoint de login que não emite credencial verificável; **ou** token previsível ou não assinado.
 **Severidade:** **CRITICAL** quando alguma rota exposta devolve dado de outro usuário ou permite escrita destrutiva. **HIGH** quando o acesso é apenas de leitura de dado não sensível. Declare qual condição se aplica.
-**Manifestações:** `'token': 'fake-jwt-token-' + str(user.id)` · login que valida a senha e devolve o usuário sem emitir nada · nenhuma rota lendo header de autorização · rota `/admin` pública.
+**Manifestações:** `'token': 'fake-jwt-token-' + str(user.id)` · login que valida a senha e devolve o usuário sem emitir nada · nenhuma rota lendo header de autorização · rota `/admin` pública · **rota com id de sujeito no caminho que exige apenas credencial, sem checar dono** — qualquer usuário logado opera sobre o recurso de qualquer outro.
 **Corrigir.** Esta entrada já não é decisão de produto: o código diz quais rotas expõem dado de terceiro e quais fazem escrita, e isso basta para decidir o que proteger. O que a recomendação precisa declarar, **rota por rota**, é quais passam a exigir credencial e quais permanecem públicas com o motivo — um fluxo de cadastro ou de compra que é o único caminho de entrada do usuário permanece público, e isso se escreve na recomendação, não se omite.
 **Transformação:** → PB-24
 
@@ -138,6 +138,14 @@ Regra de uso: procure o **sinal**. Se ele estiver presente, o finding existe, in
 **Sinal:** consulta ao banco dentro de laço, iterador ou callback que já percorre um resultado anterior.
 **Manifestações:** `for` sobre pedidos com uma query de itens por pedido · `forEach` com `db.get` dentro · contagem por linha de uma listagem · relacionamento do ORM declarado e ignorado em favor de busca manual.
 **Dica:** variáveis numeradas (`cursor2`, `cursor3`) são sintoma quase certo.
+**Como confirmar:** localize todo laço que percorre um resultado de query e procure chamada ao banco no corpo dele. Conte: `1 + N` para um nível, `1 + N + N*M` para dois.
+
+```bash
+grep -nE '(for|forEach|map)\b' <arquivo> ; # depois leia o corpo de cada um
+grep -cE '\.(execute|query|get|all|run|find)\(' <arquivo>
+```
+
+Se o projeto usa ORM, procure `relationship`/`belongsTo` declarado e **não** usado: o relacionamento existir e a rota buscar à mão é N+1 com a solução já escrita ao lado.
 **Transformação:** → PB-06
 
 ### AP-18 — Resposta não-determinística
@@ -205,16 +213,33 @@ Um finding de AP-19 só pode ser omitido depois de os três passos terem rodado 
 ### AP-22 — Contrato de resposta sem serializer único
 **Sinal:** corpo da resposta montado por literal em cada ponto, sem fonte única de verdade.
 **Manifestações:** o mesmo recurso com formatos diferentes dependendo da rota · dicionário montado campo a campo em vários lugares · serializer existindo e sendo ignorado por parte das rotas (ver AP-14).
+**Como confirmar:** escolha o campo mais característico de cada entidade e conte em quantos arquivos ele é atribuído numa construção de resposta. Dois ou mais pontos para a mesma entidade = sem fonte única.
+
+```bash
+grep -rn "'nome'\|\"nome\":" --include='*.py' . | grep -vE 'test|migration'
+```
+
+**Quando não se aplica:** respostas pequenas e distintas entre si — `{msg, id}` num endpoint e `{msg, token}` noutro — não compartilham entidade e não precisam de serializer. Exija o padrão quando **a mesma entidade** é montada em dois lugares, não por haver literais.
 **Transformação:** → PB-12
 
 ### AP-23 — Schema sem constraints de integridade
 **Sinal:** DDL ou definição de model sem `NOT NULL`, `UNIQUE` ou `FOREIGN KEY` onde o domínio exige.
 **Manifestações:** coluna de e-mail sem `UNIQUE` combinada com verifica-e-insere na aplicação (race de duplicata) · chave estrangeira ausente permitindo registro órfão.
+**Como confirmar:** leia o DDL e conte. Toda coluna que o código trata como obrigatória precisa de `NOT NULL`; toda que o código consulta antes de inserir precisa de `UNIQUE`; toda que guarda id de outra tabela precisa de `FOREIGN KEY`.
+
+```bash
+grep -cE 'NOT NULL' <schema>   # compare com o nº de colunas obrigatórias
+grep -cE 'UNIQUE'   <schema>
+grep -cE 'REFERENCES|FOREIGN KEY' <schema>
+```
+
+Em SQLite, `FOREIGN KEY` declarada só é aplicada com `PRAGMA foreign_keys = ON` por conexão — declarar sem ligar é constraint decorativa, e conta como o finding.
 **Transformação:** → PB-17
 
 ### AP-24 — Limpeza em cascata manual
 **Sinal:** remoção de entidade pai percorrendo filhos em laço, ou não tratando os filhos.
 **Manifestações:** `for t in tasks: session.delete(t)` antes de deletar o usuário · `DELETE FROM users` deixando matrículas e pagamentos apontando para id inexistente.
+**Como confirmar por execução:** apague um pai que tem filhos e leia um endpoint que lista os filhos. Se aparecer `"Unknown"`, `null` ou id apontando para nada, o finding existe — e cite o valor observado no relatório.
 **Transformação:** → PB-17
 
 ### AP-25 — Bootstrap acoplado à inicialização
@@ -253,11 +278,28 @@ Um finding de AP-19 só pode ser omitido depois de os três passos terem rodado 
 ### AP-30 — Código e imports mortos
 **Sinal:** símbolo cuja contagem de referências no projeto é 1, ou import nunca usado no arquivo.
 **Diferença para AP-14:** aqui é só código morto. Se a lógica equivalente estiver duplicada em outra camada, é AP-14 e a severidade sobe para HIGH.
+**Como confirmar:** para cada função, método público e constante, conte as ocorrências do nome no projeto. **Contagem 1 = só a definição = morto.** É o mesmo passo do AP-14, e roda uma vez servindo às duas entradas.
+
+```bash
+for s in $(grep -rhoE '^(def|class) [a-zA-Z_]+' . | awk '{print $2}' | sort -u); do
+  n=$(grep -rho "\b$s\b" --include='*.py' . | wc -l)
+  [ "$n" -le 1 ] && echo "morto: $s"
+done
+```
+
+Depois, para cada símbolo morto, procure a lógica dele duplicada em outra camada: se existir, reclassifique como AP-14.
+**Atenção:** import usado apenas como anotação de tipo (`sqlite3.Row`, `sqlite3.Connection`) **não** é morto. Confira o uso antes de apagar.
 **Transformação:** → PB-21
 
 ### AP-31 — Ausência de paginação
 **Sinal:** listagem carregando a tabela inteira, sem limite nem cursor.
 **Manifestações:** `SELECT *` sem `LIMIT` · `Model.query.all()` seguido de serialização de tudo.
+**Como confirmar:** liste as rotas de coleção e, para cada uma, verifique se a query tem cláusula de limite.
+
+```bash
+grep -rnE 'SELECT \*|\.all\(\)' --include='*.py' . | grep -v LIMIT
+```
+
 **Transformação:** → PB-22
 
 ### AP-32 — Verbosidade evitável
