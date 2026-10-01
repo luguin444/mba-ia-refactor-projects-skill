@@ -1,16 +1,9 @@
-// Acesso a dados de curso.
+function createCourseModel(db) {
+    const activeById = db.prepare('SELECT id, title, price, active FROM courses WHERE id = ? AND active = 1');
 
-class CourseModel {
-    constructor(db) {
-        this.db = db;
-    }
-
-    findActiveById(id) {
-        return this.db.get(
-            'SELECT id, title, price, active FROM courses WHERE id = ? AND active = 1',
-            [id],
-        );
-    }
+    return {
+        findActiveById: (id) => activeById.get(id),
+    };
 }
 
-module.exports = CourseModel;
+module.exports = { createCourseModel };

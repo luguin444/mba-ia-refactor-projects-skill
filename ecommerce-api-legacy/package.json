@@ -4,10 +4,13 @@
   "description": "Boilerplate com código legado para refatoração",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/app.js"
+    "start": "node --env-file-if-exists=.env src/app.js"
+  },
+  "engines": {
+    "node": ">=22.9.0"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "sqlite3": "^5.1.6"
+    "better-sqlite3": "^13.0.3",
+    "express": "^4.22.3"
   }
 }

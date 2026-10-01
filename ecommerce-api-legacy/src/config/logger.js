@@ -1,24 +1,20 @@
-// Logger com níveis, em substituição ao console.log espalhado (AP-28).
-// Nunca receba segredo, senha, hash ou dado de cartão aqui — mascare na origem.
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
 
-const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+function createLogger(levelName = 'info') {
+    const threshold = LEVELS[levelName] ?? LEVELS.info;
 
-function createLogger({ level = 'info', sink = console } = {}) {
-    const threshold = LEVELS[level] ?? LEVELS.info;
-
-    const emit = (levelName, write) => (message, meta) => {
-        if (LEVELS[levelName] > threshold) return;
-        const line = `[${new Date().toISOString()}] ${levelName.toUpperCase()} ${message}`;
-        if (meta === undefined) write(line);
-        else write(line, meta);
+    const write = (level, message, meta) => {
+        if (LEVELS[level] < threshold) return;
+        const line = JSON.stringify({ time: new Date().toISOString(), level, message, ...meta });
+        (LEVELS[level] >= LEVELS.warn ? process.stderr : process.stdout).write(`${line}\n`);
     };
 
     return {
-        error: emit('error', sink.error.bind(sink)),
-        warn: emit('warn', sink.warn.bind(sink)),
-        info: emit('info', sink.log.bind(sink)),
-        debug: emit('debug', sink.log.bind(sink)),
+        debug: (message, meta) => write('debug', message, meta),
+        info: (message, meta) => write('info', message, meta),
+        warn: (message, meta) => write('warn', message, meta),
+        error: (message, meta) => write('error', message, meta),
     };
 }
 
-module.exports = createLogger;
+module.exports = { createLogger };

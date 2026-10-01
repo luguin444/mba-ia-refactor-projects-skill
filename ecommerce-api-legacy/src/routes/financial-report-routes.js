@@ -1,14 +1,10 @@
-const express = require('express');
+const { Router } = require('express');
 
-const asyncHandler = require('../middlewares/async-handler');
-
-// Montado em /api/admin: o caminho final é GET /api/admin/financial-report.
-// A rota segue sem autenticação, como no original — ver AP-07 no relatório de
-// auditoria, marcado REQUER DECISÃO DE PRODUTO.
-function createFinancialReportRoutes({ financialReportController }) {
-    const router = express.Router();
-    router.get('/financial-report', asyncHandler(financialReportController.show));
+// Admin: the report names every student and what each one paid.
+function financialReportRoutes({ financialReportController, auth }) {
+    const router = Router();
+    router.get('/admin/financial-report', auth.requerAdmin, financialReportController.show);
     return router;
 }
 
-module.exports = createFinancialReportRoutes;
+module.exports = { financialReportRoutes };

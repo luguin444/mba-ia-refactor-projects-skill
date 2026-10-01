@@ -2,50 +2,51 @@
 
 LMS API (com fluxo de checkout) em Node.js/Express usada como entrada do desafio `refactor-arch`.
 
-Refatorada de monolito para MVC. O contrato HTTP é idêntico ao da versão original —
-as três rotas respondem os mesmos status, corpos e content-types.
-
 ## Como rodar
+
+Requer Node.js 22.9+.
 
 ```bash
 npm install
+cp .env.example .env   # opcional; preencha JWT_SECRET, ADMIN_EMAIL e ADMIN_PASSWORD
 npm start
 ```
 
-A aplicação sobe em `http://localhost:3000`. O banco SQLite é em memória e o seed
-roda no boot fora de produção. Exemplos de requisições estão em `api.http`.
+A aplicação sobe em `http://localhost:3000` (`PORT`). O banco SQLite é em memória por padrão (`DB_PATH`) e carrega os dados de exemplo no boot (`SEED_ON_BOOT=false` desliga).
 
-Para subir em outra porta: `PORT=3999 npm start`.
+Sem `JWT_SECRET`, um segredo efêmero é gerado no boot e os tokens deixam de valer a cada restart. Sem `ADMIN_EMAIL` e `ADMIN_PASSWORD`, nenhuma conta admin é criada e o relatório financeiro responde 403 a todos. Os avisos aparecem no log de inicialização.
 
-## Configuração
+## Autenticação
 
-Copie `.env.example` para `.env`. Todas as variáveis têm default exceto
-`PAYMENT_GATEWAY_KEY` — sem ela a autorização de pagamento roda em modo stub e
-avisa no boot. Node 22 lê o arquivo com `node --env-file=.env src/app.js`.
+`POST /api/login` com `{ "eml", "pwd" }` devolve `{ "token" }`, enviado como `Authorization: Bearer <token>`.
+
+| Rota | Acesso |
+|---|---|
+| `POST /api/checkout` | público — é o checkout que cria a conta do aluno |
+| `POST /api/login` | público |
+| `GET /api/admin/financial-report` | admin |
+| `DELETE /api/users/:id` | o próprio usuário ou admin |
+
+Conta criada no checkout sem `pwd` não tem senha utilizável e não consegue fazer login.
+
+## Pagamento
+
+A autorização de pagamento é um **stub**: cartões que começam com `4` são aprovados sem cobrança alguma. A integração com um gateway real ainda não existe.
 
 ## Estrutura
 
 ```
 src/
-├── config/        # ambiente, logger e conexão — únicos pontos que leem process.env
-├── database/      # schema (DDL) e seed, acionados explicitamente pelo entry point
-├── models/        # acesso a dados, um por entidade; não conhecem HTTP
-├── services/      # regra de negócio que atravessa entidades
-├── controllers/   # validam entrada, chamam a regra, montam a resposta
-├── routes/        # caminho + método + binding; camada mais fina
-├── middlewares/   # erro centralizado e wrapper de handler async
-├── errors/        # AppError
-├── create-app.js  # grafo de dependências
-└── app.js         # entry point
+├── app.js            # sobe o servidor
+├── create-app.js     # composition root: monta dependências, rotas e middlewares
+├── config/           # ambiente, logger, conexão
+├── database/         # schema, seed de exemplo, provisionamento do admin
+├── models/           # acesso a dados, um módulo por tabela
+├── services/         # regras: checkout, relatório, usuário, auth, senha, token, gateway
+├── controllers/      # validação de entrada e resposta HTTP
+├── routes/           # registro de rotas e nível de acesso
+├── middlewares/      # autenticação/autorização e erro central
+└── errors/           # AppError
 ```
 
-## O que não foi corrigido
-
-Duas decisões ficaram de fora por dependerem de produto, e estão descritas no
-relatório de auditoria em `reports/audit-ecommerce-api-legacy.md`:
-
-- **Autenticação** — nenhuma rota verifica identidade. Adicioná-la faria as três
-  responderem 401 e quebraria o contrato preservado aqui.
-- **Integridade referencial** — as `FOREIGN KEY` estão declaradas em
-  `src/database/schema.js`, mas o `PRAGMA foreign_keys` continua desligado.
-  Ligá-lo mudaria o relatório financeiro depois de um `DELETE /api/users/:id`.
+Exemplos de requisições estão em `api.http`.

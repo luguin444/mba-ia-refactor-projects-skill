@@ -1,12 +1,10 @@
-const express = require('express');
+const { Router } = require('express');
 
-const asyncHandler = require('../middlewares/async-handler');
-
-// Montado em /api/users: o caminho final é DELETE /api/users/:id.
-function createUserRoutes({ userController }) {
-    const router = express.Router();
-    router.delete('/:id', asyncHandler(userController.destroy));
+// Owner or admin: subject id in the path, destructive write.
+function userRoutes({ userController, auth }) {
+    const router = Router();
+    router.delete('/users/:id', auth.requerDonoOuAdmin('id'), userController.remove);
     return router;
 }
 
-module.exports = createUserRoutes;
+module.exports = { userRoutes };

@@ -1,26 +1,13 @@
-// Acesso a dados de usuário. Não conhece HTTP nem decide regra de negócio.
+function createUserModel(db) {
+    const byEmail = db.prepare('SELECT id, name, email, pass, role FROM users WHERE email = ?');
+    const insert = db.prepare('INSERT INTO users (name, email, pass, role) VALUES (?, ?, ?, ?)');
+    const remove = db.prepare('DELETE FROM users WHERE id = ?');
 
-class UserModel {
-    constructor(db) {
-        this.db = db;
-    }
-
-    findByEmail(email) {
-        return this.db.get('SELECT id, name, email FROM users WHERE email = ?', [email]);
-    }
-
-    async create({ name, email, passwordHash }) {
-        const { lastID } = await this.db.run(
-            'INSERT INTO users (name, email, pass) VALUES (?, ?, ?)',
-            [name, email, passwordHash],
-        );
-        return lastID;
-    }
-
-    async deleteById(id) {
-        const { changes } = await this.db.run('DELETE FROM users WHERE id = ?', [id]);
-        return changes;
-    }
+    return {
+        findByEmail: (email) => byEmail.get(email),
+        create: ({ name, email, passwordHash, role }) => Number(insert.run(name, email, passwordHash, role).lastInsertRowid),
+        deleteById: (id) => remove.run(id),
+    };
 }
 
-module.exports = UserModel;
+module.exports = { createUserModel };

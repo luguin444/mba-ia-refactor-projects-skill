@@ -1,13 +1,9 @@
-class FinancialReportController {
-    constructor({ financialReportService }) {
-        this.financialReportService = financialReportService;
-        this.show = this.show.bind(this);
-    }
-
-    async show(req, res) {
-        const report = await this.financialReportService.build();
-        return res.json(report);
-    }
+function createFinancialReportController({ financialReportService }) {
+    return {
+        show(req, res) {
+            res.json(financialReportService.build());
+        },
+    };
 }
 
-module.exports = FinancialReportController;
+module.exports = { createFinancialReportController };

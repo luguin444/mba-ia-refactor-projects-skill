@@ -1,75 +1,70 @@
 const express = require('express');
 
-const registerRoutes = require('./routes');
-const createErrorHandler = require('./middlewares/error-handler');
+const { openDatabase } = require('./config/database');
+const { createSchema } = require('./database/schema');
+const { seedExampleData } = require('./database/seed');
+const { provisionAdmin } = require('./database/provision-admin');
 
-const UserModel = require('./models/user-model');
-const CourseModel = require('./models/course-model');
-const EnrollmentModel = require('./models/enrollment-model');
-const PaymentModel = require('./models/payment-model');
-const AuditLogModel = require('./models/audit-log-model');
-const FinancialReportModel = require('./models/financial-report-model');
+const { createUserModel } = require('./models/user-model');
+const { createCourseModel } = require('./models/course-model');
+const { createEnrollmentModel } = require('./models/enrollment-model');
+const { createPaymentModel } = require('./models/payment-model');
+const { createAuditLogModel } = require('./models/audit-log-model');
+const { createFinancialReportModel } = require('./models/financial-report-model');
 
-const PasswordService = require('./services/password-service');
-const PaymentService = require('./services/payment-service');
-const CheckoutService = require('./services/checkout-service');
-const FinancialReportService = require('./services/financial-report-service');
-const UserService = require('./services/user-service');
+const { StubPaymentGateway } = require('./services/payment-gateway');
+const { TokenService } = require('./services/token-service');
+const { UserService } = require('./services/user-service');
+const { AuthService } = require('./services/auth-service');
+const { CheckoutService } = require('./services/checkout-service');
+const { FinancialReportService } = require('./services/financial-report-service');
 
-const CheckoutController = require('./controllers/checkout-controller');
-const FinancialReportController = require('./controllers/financial-report-controller');
-const UserController = require('./controllers/user-controller');
+const { createCheckoutController } = require('./controllers/checkout-controller');
+const { createAuthController } = require('./controllers/auth-controller');
+const { createFinancialReportController } = require('./controllers/financial-report-controller');
+const { createUserController } = require('./controllers/user-controller');
 
-// Monta o grafo de dependências e devolve a app pronta. Nada aqui abre conexão
-// nem decide regra: só liga as peças. Separado do entry point para que um teste
-// possa montar a app sobre um banco próprio sem subir servidor.
-function buildDependencies({ db, config, logger }) {
-    const passwordService = new PasswordService();
+const { createAuthMiddleware } = require('./middlewares/auth');
+const { createErrorHandler } = require('./middlewares/error-handler');
+const { registerRoutes } = require('./routes');
 
-    const models = {
-        userModel: new UserModel(db),
-        courseModel: new CourseModel(db),
-        enrollmentModel: new EnrollmentModel(db),
-        paymentModel: new PaymentModel(db),
-        auditLogModel: new AuditLogModel(db),
-        financialReportModel: new FinancialReportModel(db),
-    };
+// Composition root: builds every dependency from config and wires the app.
+function createApp({ env, logger }) {
+    const db = openDatabase(env.dbPath);
+    createSchema(db);
+    if (env.seedOnBoot) seedExampleData(db);
+    provisionAdmin(db, env, logger);
 
-    const paymentService = new PaymentService({
-        gatewayKey: config.paymentGatewayKey,
+    const users = createUserModel(db);
+    const tokens = new TokenService({ secret: env.jwtSecret });
+    const userService = new UserService({ users });
+
+    const checkoutService = new CheckoutService({
+        courses: createCourseModel(db),
+        users,
+        enrollments: createEnrollmentModel(db),
+        payments: createPaymentModel(db),
+        auditLogs: createAuditLogModel(db),
+        userService,
+        gateway: new StubPaymentGateway({ gatewayKey: env.paymentGatewayKey, logger }),
+        runInTransaction: (work) => db.transaction(work)(),
         logger,
     });
-
-    const services = {
-        passwordService,
-        paymentService,
-        checkoutService: new CheckoutService({ db, ...models, paymentService, passwordService }),
-        financialReportService: new FinancialReportService(models),
-        userService: new UserService(models),
-    };
-
-    const controllers = {
-        checkoutController: new CheckoutController(services),
-        financialReportController: new FinancialReportController(services),
-        userController: new UserController(services),
-    };
-
-    return { models, services, controllers };
-}
-
-function createApp({ db, config, logger }) {
-    const { controllers, services } = buildDependencies({ db, config, logger });
+    const authService = new AuthService({ users, tokens });
+    const financialReportService = new FinancialReportService({ financialReports: createFinancialReportModel(db) });
 
     const app = express();
     app.use(express.json());
-
-    registerRoutes(app, controllers);
-
-    // Último a ser registrado: só assim o Express o reconhece como middleware
-    // de erro e ele alcança tudo o que veio antes, inclusive o express.json.
+    registerRoutes(app, {
+        auth: createAuthMiddleware({ tokens }),
+        checkoutController: createCheckoutController({ checkoutService }),
+        authController: createAuthController({ authService }),
+        financialReportController: createFinancialReportController({ financialReportService }),
+        userController: createUserController({ userService }),
+    });
     app.use(createErrorHandler({ logger }));
 
-    return { app, services };
+    return app;
 }
 
-module.exports = createApp;
+module.exports = { createApp };

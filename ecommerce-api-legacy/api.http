@@ -1,6 +1,6 @@
 @baseUrl = http://localhost:3000
 
-### Checkout - sucesso
+### Checkout - sucesso (público: é o checkout que cria a conta)
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
 
@@ -24,8 +24,30 @@ Content-Type: application/json
   "card": "5111222233334444"
 }
 
-### Relatório financeiro administrativo
-GET {{baseUrl}}/api/admin/financial-report
+### Login - admin (ADMIN_EMAIL / ADMIN_PASSWORD do ambiente)
+# @name adminLogin
+POST {{baseUrl}}/api/login
+Content-Type: application/json
 
-### Deletar usuário
+{
+  "eml": "admin@exemplo.com",
+  "pwd": "troque-esta-senha"
+}
+
+### Login - aluno do seed
+# @name studentLogin
+POST {{baseUrl}}/api/login
+Content-Type: application/json
+
+{
+  "eml": "leonan@fullcycle.com.br",
+  "pwd": "123"
+}
+
+### Relatório financeiro administrativo (exige admin)
+GET {{baseUrl}}/api/admin/financial-report
+Authorization: Bearer {{adminLogin.response.body.token}}
+
+### Deletar usuário (exige ser o próprio usuário ou admin)
 DELETE {{baseUrl}}/api/users/1
+Authorization: Bearer {{studentLogin.response.body.token}}

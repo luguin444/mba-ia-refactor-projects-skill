@@ -1,12 +1,10 @@
-const express = require('express');
+const { Router } = require('express');
 
-const asyncHandler = require('../middlewares/async-handler');
-
-// Montado em /api pelo agregador: o caminho final é POST /api/checkout.
-function createCheckoutRoutes({ checkoutController }) {
-    const router = express.Router();
-    router.post('/checkout', asyncHandler(checkoutController.create));
+// Public on purpose: checkout is the only way an account gets created.
+function checkoutRoutes({ checkoutController }) {
+    const router = Router();
+    router.post('/checkout', checkoutController.checkout);
     return router;
 }
 
-module.exports = createCheckoutRoutes;
+module.exports = { checkoutRoutes };

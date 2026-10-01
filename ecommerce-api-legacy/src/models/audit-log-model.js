@@ -1,16 +1,9 @@
-// Acesso a dados da trilha de auditoria.
+function createAuditLogModel(db) {
+    const insert = db.prepare("INSERT INTO audit_logs (action, created_at) VALUES (?, datetime('now'))");
 
-class AuditLogModel {
-    constructor(db) {
-        this.db = db;
-    }
-
-    record(action) {
-        return this.db.run(
-            "INSERT INTO audit_logs (action, created_at) VALUES (?, datetime('now'))",
-            [action],
-        );
-    }
+    return {
+        record: (action) => insert.run(action),
+    };
 }
 
-module.exports = AuditLogModel;
+module.exports = { createAuditLogModel };

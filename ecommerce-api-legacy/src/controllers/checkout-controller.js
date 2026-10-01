@@ -1,37 +1,26 @@
-const AppError = require('../errors/app-error');
+const { AppError } = require('../errors/app-error');
 
-// `usr`, `eml`, `pwd`, `c_id` e `card` são contrato público da API: os nomes das
-// chaves ficam como estão. O que some são as variáveis `u`, `e`, `p`, `cid`, `cc`
-// de uma letra que carregavam esses valores adiante (AP-29).
-function parseCheckoutRequest(body = {}) {
+const isNumericId = (value) => typeof value === 'number'
+    || (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)));
+
+// Public field names (usr, eml, pwd, c_id, card) are the API contract.
+function readCheckoutInput(body = {}) {
+    const { usr: name, eml: email, pwd: password, c_id: courseId, card } = body;
+
+    if (!name || !email || !courseId || !card) throw new AppError(400, 'Bad Request');
+    if (typeof name !== 'string' || typeof email !== 'string' || typeof card !== 'string' || !isNumericId(courseId)) {
+        throw new AppError(400, 'Bad Request');
+    }
+    return { name, email, password, courseId, card };
+}
+
+function createCheckoutController({ checkoutService }) {
     return {
-        name: body.usr,
-        email: body.eml,
-        password: body.pwd,
-        courseId: body.c_id,
-        cardNumber: body.card,
+        checkout(req, res) {
+            const { enrollmentId } = checkoutService.checkout(readCheckoutInput(req.body));
+            res.status(200).json({ msg: 'Sucesso', enrollment_id: enrollmentId });
+        },
     };
 }
 
-class CheckoutController {
-    constructor({ checkoutService }) {
-        this.checkoutService = checkoutService;
-        this.create = this.create.bind(this);
-    }
-
-    async create(req, res) {
-        const input = parseCheckoutRequest(req.body);
-
-        // Mesma condição do original, inclusive a ausência de `password`:
-        // a senha nunca foi obrigatória neste endpoint.
-        if (!input.name || !input.email || !input.courseId || !input.cardNumber) {
-            throw new AppError('Bad Request', 400);
-        }
-
-        const { enrollmentId } = await this.checkoutService.execute(input);
-
-        return res.status(200).json({ msg: 'Sucesso', enrollment_id: enrollmentId });
-    }
-}
-
-module.exports = CheckoutController;
+module.exports = { createCheckoutController };

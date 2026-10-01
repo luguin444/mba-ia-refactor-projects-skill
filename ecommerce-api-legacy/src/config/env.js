@@ -1,27 +1,25 @@
-// Único lugar do projeto que lê variáveis de ambiente.
-// Nenhum valor sensível tem default: um segredo com fallback no código é o
-// mesmo segredo hardcoded com uma indireção a mais (AP-03).
+const { randomBytes } = require('node:crypto');
 
-function optionalInt(name, fallback) {
-    const raw = process.env[name];
-    if (raw === undefined || raw === '') return fallback;
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isNaN(parsed)) {
-        throw new Error(`Variável de ambiente ${name} precisa ser um inteiro, recebido: ${raw}`);
-    }
-    return parsed;
+const DEFAULT_PORT = 3000;
+
+// Without JWT_SECRET the process generates an ephemeral secret and warns:
+// every issued token stops validating on restart.
+function jwtSecret(logger) {
+    if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+    logger.warn('JWT_SECRET ausente: usando segredo efêmero gerado no boot. Tokens não sobrevivem ao restart. Defina JWT_SECRET em produção.');
+    return randomBytes(32).toString('hex');
 }
 
-const nodeEnv = process.env.NODE_ENV || 'development';
+function loadEnv(logger) {
+    return {
+        port: Number(process.env.PORT) || DEFAULT_PORT,
+        dbPath: process.env.DB_PATH || ':memory:',
+        seedOnBoot: (process.env.SEED_ON_BOOT ?? 'true').toLowerCase() !== 'false',
+        paymentGatewayKey: process.env.PAYMENT_GATEWAY_KEY || null,
+        jwtSecret: jwtSecret(logger),
+        adminEmail: process.env.ADMIN_EMAIL || null,
+        adminPassword: process.env.ADMIN_PASSWORD || null,
+    };
+}
 
-const config = {
-    nodeEnv,
-    isProduction: nodeEnv === 'production',
-    port: optionalInt('PORT', 3000),
-    logLevel: process.env.LOG_LEVEL || 'info',
-
-    // Sem default. Ausente, o gateway roda em modo stub e o PaymentService avisa.
-    paymentGatewayKey: process.env.PAYMENT_GATEWAY_KEY || null,
-};
-
-module.exports = config;
+module.exports = { loadEnv };
