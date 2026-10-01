@@ -1,7 +1,9 @@
 # Design — Skill `refactor-arch`
 
-**Data:** 2026-09-21
+**Data:** 2026-09-21 · **Revisado:** 2026-09-30 (reentrega)
 **Contexto:** Desafio MBA Full Cycle — criar uma skill que analisa, audita e refatora projetos legados para MVC, de forma agnóstica de tecnologia.
+
+> Este é o documento de design escrito antes da implementação; as estimativas de tamanho (catálogo, playbook) são de antes. A seção 3 foi revisada depois do feedback da primeira entrega, que recusou o adiamento da autenticação. Números e resultados finais estão no [README](../README.md).
 
 ## 1. Objetivo
 
@@ -25,21 +27,22 @@ A análise manual dos três projetos (em `analise-manual.md`) produziu **76 find
 
 ## 3. Decisões de escopo
 
-### 3.1. A Fase 3 corrige sem alterar o contrato HTTP
+### 3.1. A Fase 3 corrige todo CRITICAL e HIGH — inclusive autenticação
 
-O enunciado pede duas coisas que colidem: *"eliminando os problemas encontrados"* e *"os endpoints originais continuam respondendo corretamente"*. Corrigir os CRITICALs de autenticação faria toda rota responder 401 e quebraria o critério de aceite obrigatório nos três projetos.
+O enunciado pede duas coisas que colidem: *"eliminando os problemas encontrados"* e *"os endpoints originais continuam respondendo corretamente"*. Corrigir os CRITICALs de autenticação faz as rotas protegidas responderem 401 ao cliente anônimo.
 
-**Regra:** a Fase 3 corrige tudo que é invisível ao cliente HTTP — query parametrizada, hash moderno, segredos em `.env`, N+1 resolvido, camadas separadas, erro centralizado. **Não adiciona autenticação nova.** Os findings de autenticação permanecem no relatório, marcados como `REQUER DECISÃO DE PRODUTO`, com a transformação descrita e não aplicada.
+A primeira versão resolveu a colisão adiando a autenticação para `REQUER DECISÃO DE PRODUTO`, e foi recusada: preservar a rota anônima é preservar o defeito. **Regra atual:** todo finding CRITICAL e HIGH é corrigido, inclusive autenticação ausente e privilégio vindo do cliente. "Responder corretamente" passa a significar que o cliente com a credencial adequada recebe exatamente o que recebia antes; o 401 do anônimo é o conserto funcionando. `REQUER DECISÃO DE PRODUTO` fica restrito ao que não se deduz do código — quais origens o CORS libera, qual gateway de pagamento contratar, o que fazer com registro que tem histórico.
 
 ### 3.2. Exceções declaradas ao contrato
 
-Três classes de correção mudam o contrato por definição, porque o elemento exposto *é* o achado:
+Quatro classes de correção mudam o contrato por definição, porque o elemento exposto *é* o achado:
 
 | Exceção | Exemplo | Regra |
 |---|---|---|
 | Endpoint que só existe como vulnerabilidade | `/admin/query`, `/admin/reset-db` (projeto 1) | Removido |
 | Campo sensível no corpo da resposta | `password` no `to_dict()` (projeto 3), `senha` em `GET /usuarios` (projeto 1) | Campo removido, resto do objeto intacto |
 | Dado sensível em log | PAN do cartão e chave `pk_live_` (projeto 2) | Log removido ou mascarado |
+| Rota sem autenticação ou autorização | `GET /users`, `DELETE /api/users/:id`, `POST /categories` | Token assinado + nível por rota (`credencial`, `dono ou admin`, `admin`), declarado uma linha por rota com o motivo; anônimo → 401, sem permissão → 403 |
 
 Cada exceção aplicada precisa ser **listada nominalmente no relatório da Fase 2**, antes do gate. O humano confirma sabendo exatamente o que vai mudar de contrato. O diff da Fase 3 trata essas divergências como esperadas; qualquer outra é falha.
 

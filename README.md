@@ -12,6 +12,20 @@ Executada nos três projetos do desafio — dois Python/Flask com níveis de org
 | Documento de design | [`docs/design.md`](docs/design.md) |
 | Enunciado original | [`docs/desafio.md`](docs/desafio.md) |
 
+### Reentrega — o que mudou depois do feedback
+
+O feedback apontou que os três relatórios marcavam o AP-07 (autenticação ausente) e o deixavam sem aplicar, que no `task-manager-api` o `POST /users` ainda aceitava `role` do corpo e que o login seguia devolvendo `fake-jwt-token`. A correção foi feita **na skill**, não à mão nos projetos, e os três projetos foram reexecutados do zero a partir do boilerplate:
+
+| Mudança na skill | Onde |
+|---|---|
+| Regra 8: **todo finding CRITICAL e HIGH é corrigido**, inclusive autenticação e escalonamento de privilégio; `REQUER DECISÃO DE PRODUTO` fica restrito ao que não é dedutível do código (ex.: qual gateway contratar) | `SKILL.md` |
+| PB-24: autenticação vira transformação aplicada — token assinado com segredo do ambiente e expiração, middleware com três níveis (`credencial`, `dono ou admin`, `admin`) e classificação **rota por rota** no relatório | `refactoring-playbook.md` |
+| AP-34 + PB-25: **privilégio vindo do cliente** (ex.: `role` no cadastro público) é CRITICAL; o papel passa a ser default do servidor | `antipattern-catalog.md`, `refactoring-playbook.md` |
+| Com cadastro público, escrita em dado **sem dono** (catálogo, categorias) exige **admin** — "credencial" custa uma requisição | `refactoring-playbook.md` (PB-24) |
+| Regra 9: relatório anterior é histórico, não instrução — a skill não herda escopo nem decisão de uma execução descartada | `SKILL.md`, `report-template.md` |
+
+Resultado: os três projetos emitem JWT assinado, protegem cada rota com o nível declarado no relatório (anônimo → 401, sem permissão → 403) e nenhum finding CRITICAL ou HIGH de autenticação ou privilégio ficou em aberto. No `task-manager-api`, `POST /users` com `"role": "admin"` grava `user`, e o token de login é um JWT HS256 com expiração. Evidência em [Logs das aplicações](#logs-das-aplicações-rodando-após-a-refatoração).
+
 ---
 
 ## A) Análise Manual
@@ -83,13 +97,13 @@ Este projeto foi construído para parecer organizado. Tem `models/`, `routes/`, 
 
 ```
 .claude/skills/refactor-arch/
-├── SKILL.md                          # orquestra as 3 fases e o gate — 148 linhas
+├── SKILL.md                          # orquestra as 3 fases e o gate — 165 linhas
 └── references/
     ├── project-analysis.md           # heurísticas de detecção          (Fase 1)
-    ├── antipattern-catalog.md        # 33 anti-patterns                 (Fase 2)
+    ├── antipattern-catalog.md        # 34 anti-patterns                 (Fase 2)
     ├── report-template.md            # formato do relatório             (Fase 2)
     ├── mvc-guidelines.md             # camadas alvo e regras L1–L7      (Fase 3)
-    ├── refactoring-playbook.md       # 23 transformações antes/depois   (Fase 3)
+    ├── refactoring-playbook.md       # 25 transformações antes/depois   (Fase 3)
     └── contract-baseline.md          # captura e diff do contrato       (Fase 3)
 ```
 
@@ -101,15 +115,15 @@ O `contract-baseline.md` é o sexto arquivo, além das cinco áreas exigidas, e 
 
 **1. A Fase 2 pausa antes de tocar em qualquer arquivo.** O texto do gate é explícito sobre o que *não* conta como confirmação: *"'Parece bom', silêncio ou uma pergunta do usuário não são confirmação"*. Sem isso, um agente se autoriza sozinho. Nas três execuções o gate segurou — verificado por `git status` no momento da pausa: apenas o relatório apareceu, nenhum arquivo de projeto modificado.
 
-**2. A refatoração preserva o contrato HTTP.** O enunciado pede duas coisas que colidem: *"eliminando os problemas encontrados"* e *"os endpoints originais continuam respondendo corretamente"*. Corrigir os CRITICAL de autenticação faria toda rota responder 401 e quebraria o critério obrigatório. A regra adotada: corrigir tudo que é invisível ao cliente HTTP, e marcar os findings de autenticação como `REQUER DECISÃO DE PRODUTO`, com a transformação descrita e não aplicada.
+**2. A refatoração preserva o contrato HTTP — exceto onde o contrato *é* a vulnerabilidade.** O enunciado pede duas coisas que colidem: *"eliminando os problemas encontrados"* e *"os endpoints originais continuam respondendo corretamente"*. A primeira versão resolveu a tensão adiando a autenticação, e o feedback mostrou que estava errada: deixar rota anônima para preservar o contrato é preservar o defeito. A regra atual é que **todo CRITICAL e HIGH é corrigido**, e o 401 do cliente anônimo é o conserto funcionando, não regressão. "Endpoints respondendo corretamente" passa a significar: o cliente com a credencial adequada recebe exatamente o que recebia antes.
 
-**3. Três classes de exceção ao contrato, declaradas antes do gate.** Algumas correções mudam o contrato porque o elemento exposto *é* o achado: endpoint que só existe como vulnerabilidade, campo sensível no corpo da resposta, dado sensível em log. Cada exceção aplicada é listada nominalmente no relatório, antes do `[y/n]` — o humano confirma sabendo exatamente o que muda.
+**3. Quatro classes de exceção ao contrato, declaradas antes do gate.** Algumas correções mudam o contrato porque o elemento exposto *é* o achado: endpoint que só existe como vulnerabilidade, campo sensível no corpo da resposta, dado sensível em log, e rota que precisa de credencial. Cada exceção aplicada é listada nominalmente no relatório — no caso da autenticação, **uma linha por rota com o nível e o motivo** — antes do `[y/n]`. Consertos de bug que mudam status (ex.: 500 → 400 para corpo ausente) são declarados à parte, com os dois valores. O humano confirma sabendo exatamente o que muda.
 
 **4. A validação é baseline + diff, não "subi e não deu erro".** Antes de modificar qualquer arquivo, a Fase 3 reseta o banco, sobe a aplicação original, dispara todos os endpoints e grava status, content-type e corpo. Depois de refatorar, repete e compara. Divergência não declarada é falha. Se a aplicação original não sobe, a Fase 3 **aborta** — sem baseline não há como provar nada.
 
-### O catálogo: 33 anti-patterns (mínimo exigido: 8)
+### O catálogo: 34 anti-patterns (mínimo exigido: 8)
 
-Derivados diretamente dos 76 findings da análise manual, distribuídos por severidade: 9 CRITICAL, 8 HIGH, 10 MEDIUM, 6 LOW. Inclui detecção de APIs deprecated (AP-19) com tabela de equivalentes modernos por stack.
+Derivados diretamente dos 76 findings da análise manual, distribuídos por severidade: 10 CRITICAL, 8 HIGH, 10 MEDIUM, 6 LOW. Inclui detecção de APIs deprecated (AP-19) com tabela de equivalentes modernos por stack.
 
 Algumas entradas carregam **regras de anti-racionalização**, escritas porque um agente erra do mesmo jeito que um humano apressado:
 
@@ -123,13 +137,15 @@ As duas primeiras existem porque a análise manual escorregou exatamente ali.
 
 **AP-14 — Camada decorativa.** Código escrito na camada correta e nunca chamado, com a lógica duplicada na camada errada. Sinal de detecção: símbolo definido cuja contagem de referências no projeto é **1** — a própria definição. É o achado central do projeto 3, e é *pior* que ausência de camada: a estrutura desarma a suspeita enquanto as cópias divergem entre si. Disparou **só** no projeto 3, com 8 símbolos mais uma classe inteira.
 
-**AP-33 — Integração crítica substituída por stub.** Decisão de negócio de alto impacto tomada por expressão local trivial, onde o domínio exige serviço externo. Esta entrada **não existia** na primeira versão: o projeto 2 aprova pagamento com `cc.startsWith("4")`, e a skill classificou como HIGH sob AP-09 (regra na camada errada). Não foi erro dela — era o enquadramento correto disponível. Faltava a entrada que distingue *onde* a regra mora de *se a regra é falsa*. A transformação correspondente (PB-23) é subtrativa: nomear o stub, isolá-lo e fazer barulho na ausência da credencial — porque uma refatoração que preserva contrato não pode inventar a integração.
+**AP-33 — Integração crítica substituída por stub.** Decisão de negócio de alto impacto tomada por expressão local trivial, onde o domínio exige serviço externo. Esta entrada **não existia** na primeira versão: o projeto 2 aprova pagamento com `cc.startsWith("4")`, e a skill classificou como HIGH sob AP-09 (regra na camada errada). Não foi erro dela — era o enquadramento correto disponível. Faltava a entrada que distingue *onde* a regra mora de *se a regra é falsa*. A transformação correspondente (PB-23) é subtrativa: nomear o stub, isolá-lo atrás de uma interface e fazer barulho no boot — porque a refatoração não pode inventar a integração com um gateway que ninguém contratou.
 
-### O playbook: 23 transformações (mínimo exigido: 8)
+**AP-34 — Privilégio atribuído por entrada do cliente.** Também ausente da primeira versão: no projeto 3, o cadastro público lia `role` do corpo e aceitava `admin`. A skill o enquadrava como validação ausente; o feedback mostrou que é escalonamento de privilégio, CRITICAL por si só. O PB-25 faz o papel virar default do servidor.
 
-Cada uma com exemplo antes/depois, referenciada por um ou mais anti-patterns. Cobrem parametrização de query, extração de config, quebra por domínio, hash com salt, N+1 → JOIN, transação com rollback, middleware de erro, Blueprints/Router, callback → async/await, API deprecated → equivalente moderno, serializer único, remoção de endpoint perigoso, e determinismo de resposta.
+### O playbook: 25 transformações (mínimo exigido: 8)
 
-Verificação de integridade: **zero referência órfã** nos dois sentidos — todo `PB-NN` citado no catálogo existe no playbook, e todo `AP-NN` citado no playbook existe no catálogo. A única entrada sem transformação é o AP-07 (autenticação), por design.
+Cada uma com exemplo antes/depois, referenciada por um ou mais anti-patterns. Cobrem parametrização de query, extração de config, quebra por domínio, hash com salt, N+1 → JOIN, transação com rollback, middleware de erro, Blueprints/Router, callback → async/await, API deprecated → equivalente moderno, serializer único, remoção de endpoint perigoso, determinismo de resposta, autenticação com token assinado e autorização por rota (PB-24), e papel definido pelo servidor (PB-25).
+
+Verificação de integridade: **zero referência órfã** nos dois sentidos — todo `PB-NN` citado no catálogo existe no playbook, e todo `AP-NN` citado no playbook existe no catálogo. Todo anti-pattern tem transformação; a última lacuna, o AP-07, ganhou o PB-24 na reentrega.
 
 ### Agnosticismo de tecnologia — o mecanismo e a fronteira
 
@@ -149,9 +165,9 @@ Transformação: → PB-02
 
 Adicionar uma stack é acrescentar uma linha na tabela; o sinal e a severidade não mudam. O campo `Onde procurar` existe porque o projeto 2 tem o código-fonte limpo de APIs deprecated e **nove pacotes podres no lockfile** — sem esse campo, a skill falharia um requisito obrigatório do enunciado.
 
-**Evidência de que não é overfitting.** Um catálogo ajustado aos três projetos dispararia tudo em todos. Não foi o que aconteceu: o AP-14 disparou só no projeto 3; o AP-18 (resposta não-determinística) foi provado por execução só no projeto 2; e no projeto 2 a skill **recusou explicitamente** o AP-08 com justificativa correta — *"o Express não expõe console interativo"*. Isso é especificidade.
+**Evidência de que não é overfitting.** Um catálogo ajustado aos três projetos dispararia tudo em todos. Não foi o que aconteceu: o AP-14 disparou só no projeto 3; o AP-18 (resposta não-determinística) foi provado por execução só no projeto 2; e no projeto 2 o AP-08 (debug em bind público) não disparou pelo sinal de Flask — o console do Werkzeug, que não existe no Express —, e sim pelo equivalente da stack: o handler de erro padrão devolvendo stack trace com caminho absoluto, provado por execução. Isso é especificidade.
 
-**A fronteira, declarada.** A skill é agnóstica **de framework, dentro de uma classe de sistema**: API HTTP sobre banco relacional. Não é agnóstica em sentido amplo, e os números do próprio repositório mostram isso — 39 blocos de exemplo em Python, 9 em JavaScript, 1 em SQL, **zero** em qualquer outra linguagem; Ruby, Java, PHP, Rust e C# não aparecem nas manifestações do catálogo. Mais importante: a estratégia de validação inteira depende de capturar respostas HTTP, então num CLI, numa biblioteca ou num job batch a Fase 3 abortaria.
+**A fronteira, declarada.** A skill é agnóstica **de framework, dentro de uma classe de sistema**: API HTTP sobre banco relacional. Não é agnóstica em sentido amplo, e os números do próprio repositório mostram isso — 44 blocos de exemplo em Python, 11 em JavaScript, 1 em SQL, **zero** em qualquer outra linguagem; Ruby, Java, PHP, Rust e C# não aparecem nas manifestações do catálogo. Mais importante: a estratégia de validação inteira depende de capturar respostas HTTP, então num CLI, numa biblioteca ou num job batch a Fase 3 abortaria.
 
 Preferi declarar isso a alegar agnosticismo amplo. Alegação precisa resiste a quem abre o playbook; alegação ampla não.
 
@@ -166,11 +182,15 @@ Preferi declarar isso a alegar agnosticismo amplo. Alegação precisa resiste a 
 | Metadado incoerente sem entrada | O `/health` se declara `"ambiente": "producao"` com `"debug": true` e nada pegava | Manifestação acrescentada ao AP-27 |
 | Comentário contradizendo o código | `# Sem default: falta de segredo derruba o boot` acima de uma linha que gera chave aleatória | Comentário reescrito + `logger.warning` |
 
-**A tensão entre fail-fast e "inicia sem erros".** O playbook prescrevia `os.environ["SECRET_KEY"]` para segredos. Está certo em produção e **errado nesta entrega**: quem clona o repositório e roda sem `.env` recebe `KeyError`, e o critério de aceite cai. O PB-02 passou a escolher entre falhar e avisar, proibindo apenas o silêncio. A implementação resultante emite `SECRET_KEY ausente: usando chave efêmera gerada no boot. Sessões assinadas não sobrevivem ao restart.`
+**A tensão entre fail-fast e "inicia sem erros".** O playbook prescrevia `os.environ["SECRET_KEY"]` para segredos. Está certo em produção e **errado nesta entrega**: quem clona o repositório e roda sem `.env` recebe `KeyError`, e o critério de aceite cai. O PB-02 passou a escolher entre falhar e avisar, proibindo apenas o silêncio. A implementação resultante emite `SECRET_KEY ausente: usando chave efêmera gerada no boot. Tokens emitidos não sobrevivem ao restart.`
 
-**A prova de que a correção da classificação funcionou** veio nos dois projetos seguintes, em direções opostas e pelo mesmo procedimento: projeto 2 → `Monolítica`, projeto 3 → `Camadas decorativas`. A tabela antiga não conseguia acertar os dois.
+**A prova de que a correção da classificação funcionou** veio nos dois projetos seguintes, em direções opostas e pelo mesmo procedimento: projeto 2 → `Monolítica`, projeto 3 → `Camadas decorativas`. A tabela antiga não conseguia acertar os dois. Na reexecução, o projeto 1 também saiu `Monolítica`.
 
-**Uma limitação conhecida e não corrigida.** O `report-template.md` não persiste o campo `Architecture:` da Fase 1 — ele existe apenas no stdout. É o julgamento que amarra a estratégia da Fase 3 inteira, e ficar fora do arquivo quase me levou a concluir que a Fase 1 do projeto 3 havia falhado, quando o dado apenas não estava salvo.
+**A recusa da primeira entrega: autenticação adiada.** A primeira versão tratava autenticação como decisão de produto para não quebrar o contrato, e os três relatórios terminavam com o AP-07 descrito e não aplicado. O avaliador recusou, com razão: um relatório que aponta um CRITICAL e o deixa de pé não entregou a refatoração. Mudar só a instrução ("aplique a autenticação") não bastava: o erro silencioso é proteger `PUT` e `DELETE` com dono-ou-admin e deixar `GET /users/<id>` com credencial simples, o que expõe o dado de qualquer usuário a quem se cadastrar. Daí a classificação obrigatória **uma linha por rota**, com a pergunta "de quem é esse dado?" respondida em cada uma, e o terceiro nível `dono ou admin` no middleware.
+
+**Uma regra que o próprio agente descobriu.** O playbook dizia "escrita em dado sem dono (catálogo, categorias) → exige credencial". Na reexecução do projeto 1, a skill desviou dessa tabela por conta própria e exigiu admin em `POST/PUT/DELETE /produtos`, com o argumento de que, com cadastro público, "credencial" custa uma requisição — qualquer cliente recém-cadastrado poria o preço de um produto em 0,01. O projeto 3 seguiu a tabela e deixou as categorias com credencial simples. O argumento do projeto 1 virou regra do PB-24, e o projeto 3 foi reexecutado com ela.
+
+**Relatório velho como risco de contaminação.** Os relatórios da primeira entrega, que adiavam a autenticação, continuavam em `reports/` — e um agente que os lesse poderia herdar escopo e decisões de uma execução descartada. A regra 9 do `SKILL.md` declara relatório anterior como histórico, não instrução, e o template manda sobrescrever. Para a reexecução do projeto 3, o projeto foi restaurado ao boilerplate (inclusive `__pycache__/` e `.venv/`, que mantinham pastas e pacotes da refatoração anterior visíveis à Fase 1).
 
 ---
 
@@ -180,72 +200,72 @@ Preferi declarar isso a alegar agnosticismo amplo. Alegação precisa resiste a 
 
 | Projeto | CRITICAL | HIGH | MEDIUM | LOW | Total | Relatório |
 |---|---|---|---|---|---|---|
-| 1 — `code-smells-project` | 7 | 7 | 10 | 6 | **30** | [audit-project-1.md](reports/audit-project-1.md) |
-| 2 — `ecommerce-api-legacy` | 5 | 7 | 8 | 6 | **26** | [audit-project-2.md](reports/audit-project-2.md) |
-| 3 — `task-manager-api` | 5 | 5 | 9 | 6 | **25** | [audit-project-3.md](reports/audit-project-3.md) |
+| 1 — `code-smells-project` | 9 | 7 | 8 | 6 | **30** | [audit-project-1.md](reports/audit-project-1.md) |
+| 2 — `ecommerce-api-legacy` | 8 | 7 | 6 | 6 | **27** | [audit-project-2.md](reports/audit-project-2.md) |
+| 3 — `task-manager-api` | 8 | 4 | 8 | 6 | **26** | [audit-project-3.md](reports/audit-project-3.md) |
+
+Em "Requires Product Decision", nenhum finding de autenticação ou privilégio. Ficaram só itens que dependem de informação de fora do código — ver [Pontos deixados em aberto](#pontos-deixados-em-aberto-deliberadamente).
 
 ### Fase 1 — saída real de cada execução
 
 ```
 PHASE 1 · projeto 1
-Language:      Python 3.13
-Framework:     Flask 3.1.1 (flask-cors 5.0.1)
-Domain:        E-commerce — catálogo de produtos, usuários, pedidos e relatório de vendas
-Architecture:  Camadas decorativas — models.py/controllers.py/database.py existem, mas
-               a regra de negócio mora nos controllers e há SQL cru fora da camada de dados
-Source files:  4 files analyzed | 780 lines
+Stack:         Python 3.13.13 + Flask 3.1.1 (Werkzeug 3.1.9)
+Dependencies:  flask-cors==5.0.1, sqlite3 (stdlib)
+Domain:        E-commerce — catálogo de produtos, usuários/login, pedidos com baixa de estoque, relatório de vendas
+Architecture:  Monolítica — 4 arquivos soltos na raiz sem fronteira de camada; models.py junta query + regra,
+               controllers.py junta HTTP + validação + notificação + SQL, app.py junta rotas + SQL bruto
+Files:         4 analyzed | ~780 lines of code
 Routes:        19 endpoints
 DB tables:     produtos, usuarios, pedidos, itens_pedido
 ```
 
 ```
 PHASE 1 · projeto 2
-Language:      JavaScript (Node.js v22.18.0, CommonJS)
-Framework:     Express ^4.18.2 (4.22.1 instalado)
-Domain:        LMS (plataforma de cursos) com checkout: usuário se matricula em curso e paga
-Architecture:  Monolítica — AppManager.js concentra conexão, query, regra de negócio e HTTP
-               no mesmo arquivo; utils.js é grab-bag (config + cache global + cripto)
-Source files:  3 files analyzed | ~180 lines (AppManager.js 141, utils.js 25, app.js 14)
-Routes:        3 endpoints
+Stack:         JavaScript (Node.js v22.18.0) + Express ^4.18.2 (instalado 4.22.1)
+Dependencies:  express ^4.18.2, sqlite3 ^5.1.6 (instalado 5.1.7)
+Domain:        LMS com checkout — alunos compram cursos (matrícula + pagamento) e admin consulta receita
+Architecture:  Monolítica — God class AppManager.js abre conexão, monta SQL, decide regra e trata HTTP num só arquivo
+Files:         3 analyzed | ~180 lines of code
+Routes:        3 endpoints (POST /api/checkout, GET /api/admin/financial-report, DELETE /api/users/:id)
 DB tables:     users, courses, enrollments, payments, audit_logs
 ```
 
 ```
 PHASE 1 · projeto 3
-Language:      Python 3.13.13
-Framework:     Flask 3.0.0 (flask-sqlalchemy 3.1.1, SQLAlchemy 2.0.54, flask-cors 4.0.0)
-Domain:        Gerenciador de tarefas — usuários, categorias, tasks com prazo/prioridade
-Architecture:  Camadas decorativas — models/, routes/, services/ e utils/ existem, mas regra
-               de negócio e validação moram nas rotas; Task.is_overdue() e
-               helpers.process_task_data() estão escritos na camada certa e nunca são chamados
-Source files:  15 files analyzed | ~1158 lines
+Stack:         Python 3.13.13 + Flask 3.0.0 + Flask-SQLAlchemy 3.1.1 (SQLAlchemy 2.1.1)
+Dependencies:  flask-cors 4.0.0, marshmallow 3.20.1 / requests 2.31.0 / python-dotenv 1.0.0 (declaradas, nunca importadas)
+Domain:        Gerenciador de tarefas: usuários, categorias e tasks com status, prioridade, prazo e relatórios
+Architecture:  Camadas decorativas — models/ e routes/ existem, mas Task.is_overdue/validate_status/validate_priority
+               e utils.process_task_data nunca são chamados; a regra está duplicada inline nas rotas
+Files:         15 analyzed | ~1158 lines of code
 Routes:        22 endpoints
-DB tables:     users, categories, tasks (SQLite — instance/tasks.db)
+DB tables:     users, categories, tasks (SQLite → instance/tasks.db)
 ```
 
-**Ressalva honesta sobre o projeto 1:** ele foi executado com a primeira versão das referências, e a linha `Architecture:` está **errada** — 4 arquivos soltos na raiz são `Monolítica`, não `Camadas decorativas`, e a regra de negócio pesada mora em `models.py`, não nos controllers. Esse erro é o que produziu a correção descrita na seção B. Os projetos 2 e 3 rodaram com a versão corrigida e classificaram certo. A classificação não é item do checklist de validação, mas registrar o erro é mais útil que esconder.
+O campo `Architecture:` agora é persistido no relatório (cabeçalho de cada `audit-project-N.md`), e não só no stdout.
 
 ### Antes e depois da estrutura
 
-Medido da árvore do git, excluindo `.claude/` e artefatos de validação:
+Medido da árvore do git (`.py`/`.js`, excluindo `.claude/`):
 
 | Projeto | Antes | Depois | Estrutura resultante |
 |---|---|---|---|
-| 1 | 4 arq / 780 linhas | 37 arq / 1121 linhas | `config` · `database` · `models` · `services` · `controllers` · `views` · `middlewares` + composition root |
-| 2 | 3 arq / 180 linhas | 28 arq / 834 linhas | `config` · `database` · `models` · `services` · `controllers` · `routes` · `middlewares` · `errors` + `create-app.js` |
-| 3 | 15 arq / 1158 linhas | 39 arq / 1488 linhas | `config` · `models` · `repositories` · `services` · `controllers` · `routes` · `middlewares` · `exceptions` + composition root |
+| 1 | 4 arq / 780 linhas | 42 arq / 1164 linhas | `src/` com `config` · `database` · `models` · `services` · `controllers` · `views` · `middlewares` · `errors.py` + `app.py` como composition root |
+| 2 | 3 arq / 180 linhas | 34 arq / 700 linhas | `src/` com `config` · `database` · `models` · `services` · `controllers` · `routes` · `middlewares` · `errors` + `create-app.js` (composition root) e `app.js` (só sobe o servidor) |
+| 3 | 15 arq / 1158 linhas | 41 arq / 1381 linhas | `config` · `models` · `repositories` · `services` · `controllers` · `routes` · `middlewares` · `utils` · `exceptions.py` + `create_app()` |
 
-O crescimento em linhas é fronteira de camada e docstring, não lógica nova. O projeto 1 removeu 770 linhas dos quatro arquivos originais.
+O crescimento em linhas é fronteira de camada, autenticação (token, middleware, provisionamento de admin) e arquivos `__init__`, não lógica duplicada. No projeto 2, o número de linhas se manteve mesmo com autenticação nova: a troca de callbacks por driver síncrono eliminou a pirâmide de 7 níveis e os contadores manuais.
 
 ### Validação de contrato
 
-| Projeto | Requisições capturadas | Idênticas | Divergências | Normalização declarada |
-|---|---|---|---|---|
-| 1 | 55 | 45 | 10 — 9 exceções declaradas + 1 derivada delas | `volatileFields: ["capturedAt", "criado_em"]` |
-| 2 | 12 | 12 | 0 | `sortArraysBy: {"/api/admin/financial-report": "course"}` |
-| 3 | 84 | 78 | 6 — 5 exceções declaradas + 1 conserto de bug | `volatileFields: ["created_at","updated_at","generated_at","timestamp"]` |
+A Fase 3 captura o baseline do código original **antes** de tocar em qualquer arquivo, refatora, captura de novo e compara. Com autenticação, a captura roda em três perfis: com a credencial adequada (tem de ser idêntico ao baseline), anônimo (tem de dar 401 nas rotas protegidas) e usuário comum (tem de dar 403 onde exige dono ou admin). Números recalculados por mim a partir das capturas em `.refactor-arch/`:
 
-**As divergências, item por item.** Projeto 1: remoção de `/admin/query` e `/admin/reset-db` (404), do campo `senha` em `GET /usuarios` e `GET /usuarios/<id>`, e de `secret_key`/`debug`/`db_path` no `/health`. A décima é derivada: sem `/admin/reset-db`, o `/health` final observa estado acumulado. Projeto 3: remoção do campo `password` de quatro endpoints, mais `PUT /tasks/<id>` com `{"title": null}` saindo de **500** (`TypeError` não tratado, corpo HTML) para **400** `{"error": "Título é obrigatório"}` — o mesmo que o `POST` irmão já respondia. Aceito: um crash não é contrato.
+| Projeto | Autenticado: idênticas ao baseline | Divergências — todas declaradas antes do gate | Anônimo / sem permissão | Normalização declarada |
+|---|---|---|---|---|
+| 1 | 47 / 69 | 22: `senha` fora de `/usuarios` (3) · `secret_key`/`debug` do `/health` (2) · login com SQLi 200 → 401 (1) · `/admin/query` e `/admin/reset-db` → 404 (2) · consertos de bug 500 → 400 em corpo ausente ou tipo errado (10) · quantidade negativa, regra do `PUT` igual à do `POST`, e-mail duplicado, usuário inexistente (4) | 44 × 401 anônimo · 10 × 403 cliente em rota de admin ou de outro dono | `criado_em`, `token` |
+| 2 | 14 / 15 | 1: JSON malformado — stack trace em HTML → `Bad Request` | smoke manual: 401 anônimo, 403 aluno no relatório e no `DELETE` de outro usuário, 200 admin | `capturedAt`, `token`; relatório ordenado por curso e aluno (a ordem do original era aleatória) |
+| 3 | 68 / 79 | 11: `password` fora de quatro endpoints (8) · `role` do cadastro ignorado, inclusive valor inválido 400 → 201 (1) · 500 HTML → 500 JSON (2) | 66 × 401 anônimo · 18/18 sondas de autorização (dono, admin, token forjado, `fake-jwt-token`) | `created_at`, `updated_at`, `due_date`, `generated_at`, `timestamp`, `token` |
 
 ### Checklist de validação
 
@@ -255,105 +275,135 @@ Verificado de forma independente — capturas próprias, comparadores próprios,
 |---|---|:--:|:--:|:--:|---|
 | **Fase 1** | | | | | |
 | 1 | Linguagem detectada corretamente | ✅ | ✅ | ✅ | Python 3.13 · Node 22.18 · Python 3.13 |
-| 2 | Framework detectado corretamente | ✅ | ✅ | ✅ | versões instaladas conferidas: Flask 3.1.1 · Express 4.22.1 + sqlite3 5.1.7 · Flask 3.0.0 |
+| 2 | Framework detectado corretamente | ✅ | ✅ | ✅ | versões instaladas conferidas: Flask 3.1.1 · Express 4.22.1 + sqlite3 5.1.7 · Flask 3.0.0 + SQLAlchemy 2.1.1 |
 | 3 | Domínio descrito corretamente | ✅ | ✅ | ✅ | blocos da Fase 1 acima |
-| 4 | Nº de arquivos condiz com a realidade | ✅ | ✅ | ✅ | 4/780 · 3/180 · 15/1158 — recontados por `find` + `wc` |
+| 4 | Nº de arquivos condiz com a realidade | ✅ | ✅ | ✅ | 4/780 · 3/180 · 15/1158 — recontados por `git ls-tree` + `wc` |
 | **Fase 2** | | | | | |
 | 5 | Relatório segue o template | ✅ | ✅ | ✅ | os 3 relatórios em `reports/` |
-| 6 | Cada finding tem arquivo e linhas exatos | ✅ | ✅ | ✅ | conferido por amostragem nos 3 |
+| 6 | Cada finding tem arquivo e linhas exatos | ✅ | ✅ | ✅ | conferido por amostragem no código original dos 3 |
 | 7 | Findings ordenados CRITICAL → LOW | ✅ | ✅ | ✅ | — |
-| 8 | Mínimo de 5 findings | ✅ | ✅ | ✅ | 30 · 26 · 25 |
-| 9 | Detecção de APIs deprecated incluída | ✅ | ✅ | ✅ | manifesto · lockfile · código-fonte (um por projeto) |
+| 8 | Mínimo de 5 findings | ✅ | ✅ | ✅ | 30 · 27 · 26 |
+| 9 | Detecção de APIs deprecated incluída | ✅ | ✅ | ✅ | manifesto (P1) · lockfile (P2) · código-fonte (P3) — AP-19 nos 3 |
 | 10 | Pausa e pede confirmação antes da Fase 3 | ✅ | ✅ | ✅ | `git status` no gate: só o relatório, zero arquivo de projeto |
 | **Fase 3** | | | | | |
 | 11 | Estrutura segue padrão MVC | ✅ | ✅ | ✅ | tabela de estrutura acima |
-| 12 | Config em módulo próprio, sem hardcoded | ✅ | ✅ | ✅ | grep dos segredos originais: zero ocorrências fora de `config/` |
-| 13 | Models criados para abstrair dados | ✅ | ✅ | ✅ | — |
-| 14 | Views/Routes separadas | ✅ | ✅ | ✅ | grep: zero import de driver/ORM em rotas |
-| 15 | Controllers concentram o fluxo | ✅ | ✅ | ✅ | grep: zero SQL/query em controllers |
-| 16 | Error handling centralizado | ✅ | ✅ | ✅ | `middlewares/error_handler` nos 3; zero `try/except` em controller ou rota no P3 |
-| 17 | Entry point claro | ✅ | ✅ | ✅ | grep: zero rota definida no entry point |
-| 18 | Aplicação inicia sem erros | ✅ | ✅ | ✅ | subi as 3 pessoalmente |
-| 19 | Endpoints originais respondem | ✅ | ✅ | ✅ | 45/55 · 12/12 · 78/84 idênticos, divergências só as declaradas |
+| 12 | Config em módulo próprio, sem hardcoded | ✅ | ✅ | ✅ | `SECRET_KEY`/`JWT_SECRET`, gateway, SMTP, debug e bind lidos do ambiente; `.env.example` sem valores |
+| 13 | Models criados para abstrair dados | ✅ | ✅ | ✅ | `models/` (P1, P2) · `models/` + `repositories/` (P3) |
+| 14 | Views/Routes separadas | ✅ | ✅ | ✅ | rotas só registram caminho, método e nível de acesso |
+| 15 | Controllers concentram o fluxo | ✅ | ✅ | ✅ | zero SQL/query em controller |
+| 16 | Error handling centralizado | ✅ | ✅ | ✅ | `middlewares/error_handler` nos 3, com exceções de domínio mapeadas para status |
+| 17 | Entry point claro | ✅ | ✅ | ✅ | `app.py` / `create-app.js` + `app.js` / `create_app()` |
+| 18 | Aplicação inicia sem erros | ✅ | ✅ | ✅ | subi as 3 pessoalmente — logs abaixo |
+| 19 | Endpoints originais respondem | ✅ | ✅ | ✅ | 47/69 · 14/15 · 68/79 idênticos com credencial; o resto são as divergências declaradas |
 
 ### Logs das aplicações rodando após a refatoração
 
-**Projeto 1** — o exploit que funcionava antes da refatoração:
+Cada aplicação subida do zero, com banco temporário e sem `.env` (por isso os avisos de chave efêmera no boot).
+
+**Projeto 1** — boot, matriz de acesso e os exploits que funcionavam antes:
 
 ```
-$ curl -X POST :5077/login -d '{"email":"a'"'"' OR '"'"'1'"'"'='"'"'1","senha":"x'"'"' OR '"'"'1'"'"'='"'"'1"}'
-{"erro":"Email ou senha inválidos","sucesso":false}          # antes: autenticava
+WARNING __main__: SECRET_KEY ausente: usando chave efêmera gerada no boot. Tokens emitidos não sobrevivem ao restart.
+WARNING __main__: CORS_ORIGINS não definido: CORS liberado para todas as origens.
+WARNING src.services.notificacao_service: Nenhum provedor de notificação configurado: e-mail, SMS e push rodam em modo stub (só log)
+INFO src.database.seed: dados de exemplo inseridos
 
-$ curl :5077/usuarios | head -c 120
-{"dados":[{"criado_em":"...","email":"admin@loja.com","id":1,"nome":"Admin","tipo":"admin"}   # sem `senha`
-
-$ curl :5077/health
-{"ambiente":"producao","counts":{...},"database":"connected","status":"ok","versao":"1.0.0"}  # sem `secret_key`
-
-GET /  200   GET /produtos  200   GET /produtos/9999  404   GET /relatorios/vendas  200
-POST /admin/query  404   POST /admin/reset-db  404
+anon GET /                                   200
+anon GET /produtos                           200
+anon GET /usuarios                           401
+anon GET /pedidos                            401
+anon POST /produtos                          401
+joao GET /usuarios (admin)                   403
+joao GET /usuarios/1 (outro)                 403
+joao GET /usuarios/2 (ele)                   200
+joao PUT /produtos/1 (preço 0,01)            403
+joao POST /pedidos em nome do usuário 3      403
+joao POST /pedidos dele                      201
+joao POST /pedidos quantidade -2             400      # antes: 201 com total negativo e estoque aumentado
+admin GET /usuarios                          200      # sem o campo `senha`
+admin GET /relatorios/vendas                 200
+token forjado                                401
+POST /admin/query                            404      # antes: executava SQL arbitrário
+POST /login {"email": "admin@loja.com' --"}  401      # antes: 200 como Admin
+GET /health → {"status":"ok","debug":false,...}       # sem `secret_key`
 ```
 
-**Projeto 2** — o log de pagamento, com a chave de gateway presente no ambiente:
+**Projeto 2** — com `ADMIN_EMAIL`/`ADMIN_PASSWORD` no ambiente:
 
 ```
-$ PAYMENT_GATEWAY_KEY=pk_live_teste123 node src/app.js
-[2026-09-22T02:00:40.284Z] INFO processando pagamento { last4: '4444' }
+{"level":"warn","message":"JWT_SECRET ausente: usando segredo efêmero gerado no boot. ..."}
+{"level":"info","message":"conta admin provisionada","email":"admin@exemplo.com"}
+{"level":"warn","message":"autorização de pagamento em modo STUB: cartões com prefixo \"4\" são aprovados sem cobrança","gatewayKeyConfigured":false}
+{"level":"info","message":"processando pagamento","card":"****4444","amount":497}
 
-PAN completo no log?  0 ocorrências
-pk_live no log?       0 ocorrências
+anon GET /admin/financial-report                 401
+anon DELETE /users/1                             401
+login senha errada                               401
+aluno GET /admin/financial-report                403
+aluno DELETE /users/2 (outro)                    403
+token forjado                                    401
+admin GET /admin/financial-report                200
+checkout público                                 200
+checkout com card numérico                       400      # antes: derrubava o processo e o banco em memória
+JSON malformado                                  400      # antes: stack trace com caminho absoluto
+aluno DELETE /users/1 (ele mesmo)                200
 
-$ # 6 checkouts em paralelo
-enrollment_ids: [2, 3, 4, 5, 6, 7]   duplicados: False   erros de transação: 0
-
-$ curl -X POST :3065/api/checkout -d '{"usr": broken'
-Erro interno                                              # antes: stack trace HTML com o path absoluto
-
-$ # 10 chamadas ao relatório financeiro
-corpos distintos: 1                                       # antes: 5 corpos diferentes em 6 chamadas
+PAN completo no log: 0 ocorrências
 ```
 
-**Projeto 3** — endpoints sensíveis a data, que eram o risco da refatoração:
+**Projeto 3** — depois de `python seed.py`:
 
 ```
-GET /  200        GET /health  200          GET /tasks  200        GET /tasks/1  200
-GET /tasks/9999  404                        GET /tasks/stats  200  GET /tasks/search?q=bug  200
-GET /users  200   GET /users/1  200         GET /users/9999  404   GET /users/1/tasks  200
-GET /categories  200                        GET /reports/summary  200   GET /reports/user/1  200
-
-GET /tasks          → overdue: True
-GET /tasks/stats    → overdue: 2 · completion_rate: 10.0
-GET /reports/summary → overdue count: 2 · days_overdue do 1º: 3
-POST /tasks com due_date → 201
-TypeError de timezone no log: 0 ocorrências
-
-$ python seed.py
-SECRET_KEY ausente: usando chave efêmera gerada no boot. Sessões assinadas não sobrevivem ao restart.
-CORS_ORIGINS ausente: liberando todas as origens. Defina a lista de origens permitidas em produção.
+anon GET /tasks, /tasks/<id>, /tasks/stats, /tasks/search, /users, /users/<id>,
+     /users/<id>/tasks, /reports/summary, /reports/user/<id>     401 (todas)
+anon GET /categories                           200
+maria POST /categories                         403
+maria PUT /categories/1                        403
+maria DELETE /categories/1                     403
+admin POST / PUT / DELETE /categories          201 / 200 / 200
+maria PUT /tasks/1 (do João)                   403
+maria PUT /tasks/2 (dela)                      200
+maria POST /tasks                              201
+maria GET /users/1                             403
+maria GET /users/2                             200
+maria GET /users                               403
+admin GET /users                               200
+token forjado                                  401
+"Authorization: fake-jwt-token-1"              401
+POST /users {"role": "admin"}                  201 → "role": "user", sem `password` no corpo
+maria PUT /users/2 {"role": "admin"}           200 → "role": "user"
+login → token "eyJhbGciOiJIUzI1NiIs..."        JWT HS256 com exp
+DeprecationWarning / LegacyAPIWarning no log:  0
 ```
-
-Eliminação verificada por contagem no projeto 3: **18/18** `datetime.utcnow()` (a única sobrevivente está numa docstring), **51/51** `Model.query` legado, **12/12** `except:` nus.
 
 ### Como a skill se comportou em stacks diferentes
 
-**A adaptação ao ponto de partida funcionou.** O projeto 2 é um monolito de 3 arquivos e virou 28 módulos por domínio. O projeto 3 já tinha as pastas certas, e ali o trabalho foi **subtrativo**: passar a chamar `Task.is_overdue()` e apagar as 5 cópias inline, em vez de criar estrutura nova. Os dois caminhos vêm da mesma instrução, decidida pela classificação da Fase 1.
+**A adaptação ao ponto de partida funcionou.** O projeto 2 é um monolito de 3 arquivos e virou 34 módulos por domínio. O projeto 3 já tinha as pastas certas, e ali boa parte do trabalho foi **subtrativo**: passar a chamar `Task.is_overdue()`, `validate_status` e `validate_priority` e apagar as cópias inline, em vez de criar estrutura nova. Os dois caminhos vêm da mesma instrução, decidida pela classificação da Fase 1.
+
+**A autenticação se adaptou à stack sem regra por linguagem.** Nos projetos Flask, a skill usou PyJWT; no Express, onde o projeto não tinha dependência de JWT, implementou HS256 sobre `node:crypto` para não adicionar pacote. Nos três, o middleware tem os mesmos três níveis e a rota declara o nível — só a sintaxe muda (decorator em Flask, array de middlewares em Express). O ponto de entrada também foi deduzido do código, e não de regra fixa: no projeto 2 o checkout é o único caminho que cria conta, e por isso ficou público; no projeto 1 e no 3, é o `POST` de cadastro.
 
 **Conflito de porta, três estratégias.** As portas 5000 e 3000 estavam ocupadas na máquina de teste (AirPlay Receiver do macOS e apps locais). A skill resolveu sem editar o código original em nenhum dos casos: nos projetos Flask, `flask --app app run --port N` ignora o bloco `__main__`; no projeto Node, com a porta cravada num objeto de config, pré-carregar o módulo e mutar antes de carregar a app — o cache de `require` garante a mesma instância.
 
-**Cada projeto exigiu uma normalização de diff diferente**, e nenhuma foi mais larga que o necessário. O projeto 2 declarou `volatileFields: []` — **nada** mascarado — e ordenação em um único endpoint, o que exigiu detectar a não-determinância por execução: *"seis chamadas idênticas produziram cinco corpos diferentes"*. O projeto 3 declarou quatro campos de timestamp; conferi que as 16 requisições absorvidas por essa normalização diferem **exclusivamente** nesses quatro campos. O projeto 1 usou `criado_em`, o nome em português da própria coluna — a skill adaptou ao projeto em vez de assumir nomes em inglês.
+**Cada projeto exigiu uma normalização de diff diferente**, e nenhuma foi mais larga que o necessário. O projeto 2 mascarou só `capturedAt` e `token`, e ordenou um único endpoint, o que exigiu detectar a não-determinância por execução (o relatório financeiro do original devolvia os cursos em ordem diferente a cada chamada). O projeto 3 declarou os campos de timestamp. O projeto 1 usou `criado_em`, o nome em português da própria coluna — a skill adaptou ao projeto em vez de assumir nomes em inglês.
 
-**A detecção de deprecated acertou um lugar diferente em cada projeto**, o que exercitou os três do campo `Onde procurar`: projeto 1 no **manifesto** (`flask-cors` uma major atrás), projeto 2 no **lockfile** (9 pacotes marcados como deprecated pelo npm), projeto 3 no **código-fonte** (`datetime.utcnow()` e a API legada do SQLAlchemy).
+**A detecção de deprecated acertou um lugar diferente em cada projeto**, o que exercitou os três do campo `Onde procurar`: projeto 1 no **manifesto** (`flask-cors` com CVE), projeto 2 no **lockfile** (pacotes marcados como deprecated pelo npm), projeto 3 no **código-fonte** (`datetime.utcnow()` e `Query.get()` legado do SQLAlchemy).
 
-**Ela achou coisas que a análise manual perdeu**, nos três projetos — entre elas o vazamento de stack trace do Express com o caminho absoluto do filesystem, a coluna `ativo` que existe no schema do projeto 1 e nunca é usada, e a divergência concreta entre `POST /categories` (400) e `PUT /categories/<id>` (500) no projeto 3. E corrigiu números meus: 22 endpoints no projeto 3, não 17; 15 arquivos e 1158 linhas, não 13 e ~900.
+**Ela achou coisas que a análise manual perdeu**, nos três projetos — entre elas o vazamento de stack trace do Express com o caminho absoluto do filesystem, o processo Node derrubado por um `card` numérico, a coluna `ativo` que existe no schema do projeto 1 e nunca é usada, e a quantidade negativa que *aumenta* o estoque no projeto 1. E corrigiu números meus: 22 endpoints no projeto 3, não 17; 15 arquivos e 1158 linhas, não 13 e ~900.
 
 ### Pontos deixados em aberto, deliberadamente
 
+Nenhum é autenticação, autorização ou privilégio. Os relatórios marcam como `Requires Product Decision` só o que depende de informação de fora do código — a tabela "O que pode ficar sem correção" do `SKILL.md` define o critério.
+
 | Projeto | Item | Por quê |
 |---|---|---|
-| 1, 2, 3 | Autenticação (AP-07) | Implementar faria as rotas responderem 401 e quebraria o contrato. Decisão de produto |
-| 2 | `ON DELETE CASCADE` nas matrículas | Apagar registro de pagamento porque um usuário foi removido destrói dado contábil. Hoje R$ 1.994 ficam atribuídos a um usuário inexistente; o conserto correto é soft delete ou `RESTRICT`, não cascade |
-| 2 | Gateway de pagamento real | O stub foi nomeado, isolado e passou a avisar na ausência da credencial. Implementar integração é escopo de produto |
-| 3 | Caminho de migração de hash MD5 | Existe e está correto, mas é **inalcançável** neste repositório: o `seed.py` grava scrypt, então nenhum registro nasce com MD5. Mantém `hashlib.md5` vivo no código |
+| 2 | **Gateway de pagamento real (AP-33, CRITICAL)** — cartão com prefixo `4` continua aprovado sem cobrança | A refatoração não pode inventar a integração com um gateway que ninguém contratou, e qual contratar não se deduz do código. O que era deduzível foi feito: a decisão saiu do handler para `StubPaymentGateway`, atrás de uma interface `authorize({ card, amount })` injetada no checkout; a classe se declara STUB no nome e no comentário; o boot emite `warn` informando que cartões com prefixo `4` são aprovados sem cobrança; o cartão sai mascarado no log e a chave do gateway saiu do código. Trocar essa classe é a única mudança que a integração real vai exigir |
+| 1 | Provedor de notificação e devolução de estoque no cancelamento (AP-33, HIGH) | Mesmo caso: o stub foi isolado em `NotificacaoService`, com aviso no boot. Qual provedor de e-mail/SMS usar, e se o cancelamento repõe estoque (o original só imprimia "Devolver estoque"), são decisões de negócio |
+| 1, 2 | Apagar registro com histórico (AP-24) | Apagar em cascata destrói registro de venda ou de pagamento; bloquear muda o contrato do `DELETE`; soft delete muda os relatórios. Comportamento atual preservado |
+| 1, 3 | Origens do CORS (AP-26) | O mecanismo (`CORS_ORIGINS`) foi entregue; quais origens liberar só o dono do produto sabe. Default `*` com aviso no boot |
+| 1, 2, 3 | Tamanho de página (AP-31) | `limit`/`offset` opcionais entregues nos projetos 1 e 3; forçar paginação muda o formato das listagens |
+| 2 | Nomes públicos `usr`, `eml`, `pwd`, `c_id` (AP-29, parcial) | Renomear exige versionar a API; os nomes internos foram corrigidos |
+| 1, 2, 3 | Token continua válido até expirar depois que o usuário é desativado, rebaixado ou apagado | O papel vai no token, para a autorização não depender de consulta ao banco. Revogação imediata exige lista de bloqueio ou checagem por requisição. A validade é de 12h e é configurável nos projetos Python |
+| 3 | `user_id: 0` em `POST`/`PUT /tasks` | A checagem de existência usa teste de verdade e pula o `0`. Com `PRAGMA foreign_keys` ligado, o banco recusa a escrita: a resposta é 500 com rollback, sem dado corrompido |
 
 ---
 
@@ -362,17 +412,17 @@ Eliminação verificada por contagem no projeto 3: **18/18** `datetime.utcnow()`
 ### Pré-requisitos
 
 - **Claude Code** instalado e autenticado
-- **Python 3.11+** e **Node.js 20+** (testado com Python 3.13 e Node 22)
+- **Python 3.11+** e **Node.js 22.9+** (testado com Python 3.13 e Node 22.18; o `npm start` do projeto 2 usa `--env-file-if-exists`)
 - Portas livres, ou a skill sobe em porta alternativa sozinha
 
 ### Preparar os ambientes
 
 ```bash
-# projetos Python — um venv por projeto, as versões de Flask diferem
+# projetos Python — um venv por projeto
 cd code-smells-project && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 cd ../task-manager-api  && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python seed.py        # popula instance/tasks.db — rode antes do primeiro boot
+.venv/bin/python seed.py        # cria o schema e popula instance/tasks.db — rode antes do primeiro boot
 
 # projeto Node
 cd ../ecommerce-api-legacy && npm install
@@ -398,41 +448,63 @@ cd ../ecommerce-api-legacy && claude      # depois: /refactor-arch
 cd ../task-manager-api     && claude      # depois: /refactor-arch
 ```
 
-**Na Fase 2 a skill pausa.** Leia o relatório — em especial as seções `Contract Exceptions` e `Requires Product Decision` — antes de responder `y`. Se `Contract Exceptions` estiver vazia num projeto que tem segredo exposto, algo saiu errado.
+**Na Fase 2 a skill pausa.** Leia o relatório — em especial a tabela de rotas em `Contract Exceptions` e a seção `Requires Product Decision` — antes de responder `y`. Se aparecer autenticação ou privilégio em `Requires Product Decision`, algo saiu errado.
+
+A skill grava o relatório em `reports/audit-<nome-do-projeto>.md`, na raiz do repositório. Os arquivos desta entrega foram renomeados para `audit-project-{1,2,3}.md`, como pede o enunciado.
 
 ### Validar que a refatoração funcionou
 
+Sem token, as rotas protegidas respondem 401; com o token do papel certo, respondem como antes.
+
 ```bash
-# 1. a aplicação sobe
-cd code-smells-project && PORT=5077 .venv/bin/python app.py
-
-# 2. os endpoints respondem
+# Projeto 1
+cd code-smells-project && PORT=5077 .venv/bin/python app.py &
+B=localhost:5077; J='Content-Type: application/json'
+curl -s -o /dev/null -w '%{http_code}\n' $B/usuarios                       # 401
+TOKEN=$(curl -s -H "$J" -d '{"email":"admin@loja.com","senha":"admin123"}' $B/login \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 for p in / /produtos /produtos/1 /produtos/9999 /usuarios /pedidos /relatorios/vendas /health; do
-  printf '%-24s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:5077$p)"
-done
-# esperado: 200 em tudo, 404 em /produtos/9999
+  printf '%-22s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" $B$p)"
+done                                                                        # 200 em tudo, 404 em /produtos/9999
 
-# 3. o diff de contrato fechou
-# A Fase 3 imprime o resultado endpoint a endpoint e grava as capturas em
-# .refactor-arch/, que é ignorado pelo git — o diretório só existe depois de
-# rodar a skill, não vem no clone. Divergências devem corresponder exatamente
-# às exceções declaradas antes do gate.
+# Projeto 2 — o admin vem do ambiente
+cd ../ecommerce-api-legacy && PORT=3077 ADMIN_EMAIL=admin@exemplo.com ADMIN_PASSWORD=troque-esta-senha npm start &
+TOKEN=$(curl -s -H 'Content-Type: application/json' -d '{"eml":"admin@exemplo.com","pwd":"troque-esta-senha"}' \
+  localhost:3077/api/login | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+curl -s -o /dev/null -w '%{http_code}\n' localhost:3077/api/admin/financial-report                                    # 401
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" localhost:3077/api/admin/financial-report  # 200
 
-# 3. as regras de camada valem
-grep -rE "import sqlite3|from database" src/views/     # esperado: vazio
-grep -rE "SELECT |INSERT |\.execute\(" src/controllers/ # esperado: vazio
-grep -rE "from flask|jsonify" src/models/               # esperado: vazio
+# Projeto 3 — rode o seed antes
+cd ../task-manager-api && .venv/bin/python seed.py && PORT=5078 .venv/bin/python app.py &
+TOKEN=$(curl -s -H 'Content-Type: application/json' -d '{"email":"joao@email.com","password":"1234"}' \
+  localhost:5078/login | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+for p in /tasks /users /categories /reports/summary; do
+  printf '%-18s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" localhost:5078$p)"
+done                                                                        # 200 em tudo
+
+# O diff de contrato: a Fase 3 imprime o resultado endpoint a endpoint e grava as capturas
+# em .refactor-arch/, que é ignorado pelo git — o diretório só existe depois de rodar a skill.
+# Divergências devem corresponder exatamente às exceções declaradas antes do gate.
+
+# As regras de camada valem (exemplo no projeto 1)
+grep -rE "import sqlite3|from database" src/views/      # esperado: vazio
+grep -rE "SELECT |INSERT |\.execute\(" src/controllers/  # esperado: vazio
+grep -rE "from flask|jsonify" src/models/                # esperado: vazio
 ```
 
 ### Resetar entre execuções
 
-A Fase 3 modifica o projeto. Para reexecutar do estado original:
+A Fase 3 modifica o projeto. Para reexecutar a partir do código original, preservando a skill:
 
 ```bash
-git restore --source=6d1ce62 -- <projeto>/
+P=task-manager-api                       # ou code-smells-project / ecommerce-api-legacy
+mv $P/.refactor-arch /tmp/                # capturas da execução anterior
+git restore --source=6d1ce62 --staged --worktree -- $P ":(exclude)$P/.claude"
+find $P -name __pycache__ -not -path '*/.venv/*' -prune -exec rm -rf {} +
+git clean -nd $P                          # confira a lista; depois git clean -fd $P
 ```
 
-`6d1ce62` é o commit do boilerplate. Isso preserva `.venv/`, `node_modules/` e a skill, que são ignorados pelo git.
+`6d1ce62` é o commit do boilerplate. O `:(exclude)` é necessário porque a skill é versionada e não existe nesse commit — sem ele, o `restore` a apagaria. O `__pycache__/` precisa sair antes do `git clean`, senão as pastas criadas pela refatoração sobrevivem e a Fase 1 enxerga camadas que o original não tem. Nos projetos Python, recrie também o `.venv` com o `requirements.txt` original, para a checagem de dependências ver as versões reais.
 
 ### Ordem sugerida
 
@@ -440,11 +512,4 @@ git restore --source=6d1ce62 -- <projeto>/
 2. Executar no `code-smells-project` (monolito, o caso mais simples).
 3. Executar no `ecommerce-api-legacy` (outra stack).
 4. Executar no `task-manager-api` (o mais difícil: parece organizado e não está).
-5. Se algum projeto não bater os critérios, ajustar os arquivos de referência — não o `SKILL.md`, salvo falha de orquestração —, redistribuir com `rsync` e reexecutar.
-
-A cópia canônica da skill vive em `code-smells-project/`. Para manter as três sincronizadas:
-
-```bash
-rsync -a --delete code-smells-project/.claude/skills/refactor-arch ecommerce-api-legacy/.claude/skills/
-rsync -a --delete code-smells-project/.claude/skills/refactor-arch task-manager-api/.claude/skills/
-```
+5. Se algum projeto não bater os critérios, ajustar os arquivos de referência — não o `SKILL.md`, salvo falha de orquestração —, redistribuir para as três cópias e reexecutar.
