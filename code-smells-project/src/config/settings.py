@@ -1,50 +1,40 @@
-"""Única fonte de valores que variam por ambiente. Não importa nenhuma outra camada."""
-import logging
 import os
 
-_logger = logging.getLogger(__name__)
+
+def _bool(nome, padrao):
+    return os.getenv(nome, str(padrao)).strip().lower() in ("1", "true", "yes")
 
 
-def _flag(nome: str, padrao: str = "false") -> bool:
-    return os.getenv(nome, padrao).strip().lower() in ("1", "true", "yes", "on")
+def _secret_key():
+    """Lê SECRET_KEY do ambiente; sem a variável, gera uma chave efêmera.
 
-
-def _secret_key() -> str:
-    """Lê SECRET_KEY do ambiente; sem ela, gera uma efêmera e avisa em voz alta.
-
-    A aplicação sobe sem configuração para não exigir `.env` em desenvolvimento,
-    mas a chave muda a cada restart e toda sessão assinada é invalidada. Em
-    produção, defina SECRET_KEY — veja `.env.example`.
+    A chave efêmera muda a cada restart e invalida todo token emitido antes.
+    O composition root avisa no boot quando isso acontece.
     """
     chave = os.environ.get("SECRET_KEY")
     if chave:
-        return chave
+        return chave, False
+    return os.urandom(32).hex(), True
 
-    _logger.warning(
-        "SECRET_KEY ausente no ambiente: usando chave efêmera gerada no boot. "
-        "Sessões assinadas não sobrevivem ao restart. Defina SECRET_KEY em produção."
-    )
-    return os.urandom(32).hex()
+
+def _cors_origins():
+    bruto = os.getenv("CORS_ORIGINS", "*").strip()
+    if bruto == "*":
+        return "*"
+    return [origem.strip() for origem in bruto.split(",") if origem.strip()]
 
 
 class Settings:
-    SECRET_KEY = _secret_key()
-
-    DEBUG = _flag("DEBUG")
+    SECRET_KEY, SECRET_KEY_EFEMERA = _secret_key()
+    DEBUG = _bool("DEBUG", False)
+    APP_ENV = os.getenv("APP_ENV", "producao")
     DATABASE_PATH = os.getenv("DATABASE_PATH", "loja.db")
+    SEED_ON_BOOT = _bool("SEED_ON_BOOT", True)
+    CORS_ORIGINS = _cors_origins()
     HOST = os.getenv("HOST", "127.0.0.1")
     PORT = int(os.getenv("PORT", "5000"))
-
-    # Vazio = nenhuma origem cross-site liberada.
-    CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
-
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-
-    # Semear dados de exemplo no boot. Explícito, nunca disparado por obter conexão.
-    SEED_ON_BOOT = _flag("SEED_ON_BOOT", "true")
-
-    AMBIENTE = os.getenv("AMBIENTE", "producao")
-    VERSAO = "1.0.0"
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    TOKEN_TTL_HORAS = int(os.getenv("TOKEN_TTL_HORAS", "12"))
 
 
 settings = Settings()

@@ -1,9 +1,3 @@
-"""Registro das rotas de índice e health-check.
-
-As rotas `/admin/query` e `/admin/reset-db` não foram reimplementadas: executor de SQL
-arbitrário e reset de banco sem autenticação não têm versão segura. Remoção declarada
-como exceção de contrato na Fase 2.
-"""
 from flask import Blueprint
 
 from src.controllers import sistema_controller

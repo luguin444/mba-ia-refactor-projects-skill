@@ -1,5 +1,6 @@
-"""Constantes de domínio. Fonte única para valores que antes eram literais soltos."""
 from enum import StrEnum
+
+VERSAO_API = "1.0.0"
 
 
 class StatusPedido(StrEnum):
@@ -10,25 +11,18 @@ class StatusPedido(StrEnum):
     CANCELADO = "cancelado"
 
 
-class CategoriaProduto(StrEnum):
-    INFORMATICA = "informatica"
-    MOVEIS = "moveis"
-    VESTUARIO = "vestuario"
-    GERAL = "geral"
-    ELETRONICOS = "eletronicos"
-    LIVROS = "livros"
+class TipoUsuario(StrEnum):
+    CLIENTE = "cliente"
+    ADMIN = "admin"
 
 
-# A ordem é contrato: a mensagem de erro de categoria inválida lista os valores.
-CATEGORIAS_VALIDAS = [c.value for c in CategoriaProduto]
-STATUS_VALIDOS = [s.value for s in StatusPedido]
-
-CATEGORIA_PADRAO = CategoriaProduto.GERAL.value
+CATEGORIAS_VALIDAS = ["informatica", "moveis", "vestuario", "geral", "eletronicos", "livros"]
+CATEGORIA_PADRAO = "geral"
 
 NOME_PRODUTO_MIN = 2
 NOME_PRODUTO_MAX = 200
 
-# Faixas de desconto sobre o faturamento, da mais alta para a mais baixa.
+# (faturamento mínimo exclusivo, taxa) — avaliadas da maior para a menor
 FAIXAS_DESCONTO = ((10_000, 0.10), (5_000, 0.05), (1_000, 0.02))
 
-LIMITE_PAGINACAO_MAXIMO = 200
+LIMITE_MAXIMO_PAGINA = 200

@@ -1,70 +1,98 @@
-"""Regra de negócio de pedido: disponibilidade, total e transição de status.
-
-O cálculo do total e a checagem de estoque saíram da camada de dados; a validação
-de status e o disparo de notificação saíram do controller.
-"""
 import logging
 
-from src.middlewares.error_handler import AppError
-from src.models import pedido_model, produto_model
-from src.models.constants import STATUS_VALIDOS
-from src.services import notificacao_service
+from src.database.connection import transacao
+from src.errors import ValidacaoError
+from src.models import pedido_model, produto_model, usuario_model
+from src.models.constants import StatusPedido
 
 logger = logging.getLogger(__name__)
 
-
-def listar() -> list[dict]:
-    return pedido_model.listar()
+_notificador = None
 
 
-def listar_por_usuario(usuario_id: int) -> list[dict]:
-    return pedido_model.listar_por_usuario(usuario_id)
+def configurar_notificacao(notificador):
+    """Chamado uma vez pelo composition root."""
+    global _notificador
+    _notificador = notificador
 
 
-def _montar_itens(itens_solicitados: list[dict]) -> tuple[list[dict], float]:
-    """Resolve preço e disponibilidade de cada item e devolve os itens com o total."""
-    itens, total = [], 0.0
+class _RegraDePedido(ValidacaoError):
+    """Recusa por regra de pedido: o corpo leva `"sucesso": false`, como no contrato original."""
 
-    for solicitado in itens_solicitados:
-        produto = produto_model.buscar_por_id(solicitado["produto_id"])
-        if produto is None:
-            raise AppError(f"Produto {solicitado['produto_id']} não encontrado", incluir_sucesso=True)
-        if produto["estoque"] < solicitado["quantidade"]:
-            raise AppError(f"Estoque insuficiente para {produto['nome']}", incluir_sucesso=True)
-
-        total += produto["preco"] * solicitado["quantidade"]
-        itens.append({
-            "produto_id": produto["id"],
-            "quantidade": solicitado["quantidade"],
-            "preco_unitario": produto["preco"],
-        })
-
-    return itens, total
+    def __init__(self, mensagem):
+        super().__init__(mensagem, com_sucesso=True)
 
 
-def criar(dados: dict | None) -> dict:
-    if not dados:
-        raise AppError("Dados inválidos")
+def _quantidade_valida(valor):
+    return isinstance(valor, int) and not isinstance(valor, bool) and valor > 0
+
+
+def validar(dados):
+    if not dados or not isinstance(dados, dict):
+        raise ValidacaoError("Dados inválidos")
 
     usuario_id = dados.get("usuario_id")
-    itens_solicitados = dados.get("itens", [])
-
+    itens = dados.get("itens", [])
     if not usuario_id:
-        raise AppError("Usuario ID é obrigatório")
-    if not itens_solicitados:
-        raise AppError("Pedido deve ter pelo menos 1 item")
+        raise ValidacaoError("Usuario ID é obrigatório")
+    if not itens:
+        raise ValidacaoError("Pedido deve ter pelo menos 1 item")
+    if not isinstance(itens, list):
+        raise ValidacaoError("Itens devem ser uma lista")
+    for item in itens:
+        if not isinstance(item, dict) or item.get("produto_id") is None:
+            raise ValidacaoError("Todo item precisa de produto_id")
+        if not _quantidade_valida(item.get("quantidade")):
+            raise ValidacaoError("Quantidade deve ser um inteiro positivo")
+    return usuario_id, itens
 
-    itens, total = _montar_itens(itens_solicitados)
-    pedido_id = pedido_model.registrar(usuario_id, total, itens)
 
-    notificacao_service.notificar_pedido_criado(pedido_id, usuario_id)
+def criar(usuario_id, itens):
+    """Recebe dados já validados e com dono já verificado."""
+    if not usuario_model.existe(usuario_id):
+        raise ValidacaoError("Usuário não encontrado")
+
+    total = 0
+    precos = {}
+    for item in itens:
+        produto = produto_model.buscar_por_id(item["produto_id"])
+        if produto is None:
+            raise _RegraDePedido(f"Produto {item['produto_id']} não encontrado")
+        if produto["estoque"] < item["quantidade"]:
+            raise _RegraDePedido(f"Estoque insuficiente para {produto['nome']}")
+        precos[item["produto_id"]] = produto
+        total = total + (produto["preco"] * item["quantidade"])
+
+    with transacao() as conexao:
+        pedido_id = pedido_model.inserir(conexao, usuario_id, total)
+        for item in itens:
+            produto = precos[item["produto_id"]]
+            pedido_model.inserir_item(conexao, pedido_id, item["produto_id"], item["quantidade"], produto["preco"])
+            if not produto_model.debitar_estoque(conexao, item["produto_id"], item["quantidade"]):
+                raise _RegraDePedido(f"Estoque insuficiente para {produto['nome']}")
+
+    logger.info("pedido criado id=%s usuario=%s", pedido_id, usuario_id)
+    _notificador.pedido_criado(pedido_id, usuario_id)
     return {"pedido_id": pedido_id, "total": total}
 
 
-def atualizar_status(pedido_id: int, dados: dict | None) -> None:
-    novo_status = (dados or {}).get("status", "")
-    if novo_status not in STATUS_VALIDOS:
-        raise AppError("Status inválido")
+def listar(limite=None, offset=0):
+    return pedido_model.listar(limite, offset)
+
+
+def listar_por_usuario(usuario_id, limite=None, offset=0):
+    return pedido_model.listar_por_usuario(usuario_id, limite, offset)
+
+
+def atualizar_status(pedido_id, dados):
+    dados = dados if isinstance(dados, dict) else {}
+    novo_status = dados.get("status", "")
+    if novo_status not in list(StatusPedido):
+        raise ValidacaoError("Status inválido")
 
     pedido_model.atualizar_status(pedido_id, novo_status)
-    notificacao_service.notificar_mudanca_de_status(pedido_id, novo_status)
+
+    if novo_status == StatusPedido.APROVADO:
+        _notificador.pedido_aprovado(pedido_id)
+    elif novo_status == StatusPedido.CANCELADO:
+        _notificador.pedido_cancelado(pedido_id)

@@ -1,11 +1,7 @@
-"""Configuração de logging da aplicação. Substitui os `print` espalhados pelo projeto."""
 import logging
 
-from src.config.settings import settings
+FORMATO = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
-def configurar_logging() -> None:
-    logging.basicConfig(
-        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-    )
+def configurar_logging(nivel="INFO"):
+    logging.basicConfig(level=nivel, format=FORMATO)

@@ -1,60 +1,54 @@
-"""Fonte única do formato de cada recurso na resposta.
-
-Antes o dicionário de produto era remontado em três funções e o de usuário em duas —
-foi assim que o campo `senha` acabou exposto em dois deles.
-"""
-import sqlite3
+"""Fonte única do formato público de cada entidade."""
 
 
-def serializar_produto(linha: sqlite3.Row) -> dict:
+def produto(row):
     return {
-        "id": linha["id"],
-        "nome": linha["nome"],
-        "descricao": linha["descricao"],
-        "preco": linha["preco"],
-        "estoque": linha["estoque"],
-        "categoria": linha["categoria"],
-        "ativo": linha["ativo"],
-        "criado_em": linha["criado_em"],
+        "id": row["id"],
+        "nome": row["nome"],
+        "descricao": row["descricao"],
+        "preco": row["preco"],
+        "estoque": row["estoque"],
+        "categoria": row["categoria"],
+        "ativo": row["ativo"],
+        "criado_em": row["criado_em"],
     }
 
 
-def serializar_usuario(linha: sqlite3.Row) -> dict:
-    """Nunca inclui `senha`. É o único lugar que decide o que um usuário expõe."""
+def usuario(row):
+    # `senha` nunca sai daqui (AP-04)
     return {
-        "id": linha["id"],
-        "nome": linha["nome"],
-        "email": linha["email"],
-        "tipo": linha["tipo"],
-        "criado_em": linha["criado_em"],
+        "id": row["id"],
+        "nome": row["nome"],
+        "email": row["email"],
+        "tipo": row["tipo"],
+        "criado_em": row["criado_em"],
     }
 
 
-def serializar_usuario_autenticado(linha: sqlite3.Row) -> dict:
-    """Forma reduzida devolvida pelo login."""
+def usuario_autenticado(row):
     return {
-        "id": linha["id"],
-        "nome": linha["nome"],
-        "email": linha["email"],
-        "tipo": linha["tipo"],
+        "id": row["id"],
+        "nome": row["nome"],
+        "email": row["email"],
+        "tipo": row["tipo"],
     }
 
 
-def serializar_item_pedido(linha: sqlite3.Row) -> dict:
+def pedido(row):
     return {
-        "produto_id": linha["produto_id"],
-        "produto_nome": linha["produto_nome"] or "Desconhecido",
-        "quantidade": linha["quantidade"],
-        "preco_unitario": linha["preco_unitario"],
-    }
-
-
-def serializar_pedido(linha: sqlite3.Row) -> dict:
-    return {
-        "id": linha["id"],
-        "usuario_id": linha["usuario_id"],
-        "status": linha["status"],
-        "total": linha["total"],
-        "criado_em": linha["criado_em"],
+        "id": row["id"],
+        "usuario_id": row["usuario_id"],
+        "status": row["status"],
+        "total": row["total"],
+        "criado_em": row["criado_em"],
         "itens": [],
+    }
+
+
+def item_pedido(row):
+    return {
+        "produto_id": row["produto_id"],
+        "produto_nome": row["produto_nome"] if row["produto_existe"] is not None else "Desconhecido",
+        "quantidade": row["quantidade"],
+        "preco_unitario": row["preco_unitario"],
     }

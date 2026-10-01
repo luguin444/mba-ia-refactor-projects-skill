@@ -1,95 +1,87 @@
-"""Regra de negócio de produto. Testável sem subir servidor e sem tocar em HTTP."""
 import logging
 
-from src.middlewares.error_handler import AppError
+from src.errors import NaoEncontradoError, ValidacaoError
 from src.models import produto_model
-from src.models.constants import (
-    CATEGORIA_PADRAO,
-    CATEGORIAS_VALIDAS,
-    NOME_PRODUTO_MAX,
-    NOME_PRODUTO_MIN,
-)
+from src.models.constants import CATEGORIA_PADRAO, CATEGORIAS_VALIDAS, NOME_PRODUTO_MAX, NOME_PRODUTO_MIN
 
 logger = logging.getLogger(__name__)
 
 
-def _validar_payload(dados: dict | None, *, validar_nome_e_categoria: bool) -> dict:
-    """Valida o payload de produto e devolve os campos normalizados.
+def _numerico(valor):
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool)
 
-    `validar_nome_e_categoria` reproduz a assimetria que o baseline capturou: a criação
-    checa tamanho do nome e lista de categorias, a atualização não. Unificar as duas
-    seria mudança de contrato — ver "Divergências para decisão" no relatório.
-    """
-    if not dados:
-        raise AppError("Dados inválidos")
-    for campo, mensagem in (
-        ("nome", "Nome é obrigatório"),
-        ("preco", "Preço é obrigatório"),
-        ("estoque", "Estoque é obrigatório"),
-    ):
+
+def validar(dados):
+    """Regra única de produto, usada por criação e atualização."""
+    if not dados or not isinstance(dados, dict):
+        raise ValidacaoError("Dados inválidos")
+    for campo, mensagem in (("nome", "Nome é obrigatório"),
+                            ("preco", "Preço é obrigatório"),
+                            ("estoque", "Estoque é obrigatório")):
         if campo not in dados:
-            raise AppError(mensagem)
+            raise ValidacaoError(mensagem)
 
     nome = dados["nome"]
+    descricao = dados.get("descricao", "")
     preco = dados["preco"]
     estoque = dados["estoque"]
     categoria = dados.get("categoria", CATEGORIA_PADRAO)
 
+    if not isinstance(nome, str):
+        raise ValidacaoError("Nome deve ser texto")
+    if not _numerico(preco):
+        raise ValidacaoError("Preço deve ser numérico")
+    if not _numerico(estoque):
+        raise ValidacaoError("Estoque deve ser numérico")
     if preco < 0:
-        raise AppError("Preço não pode ser negativo")
+        raise ValidacaoError("Preço não pode ser negativo")
     if estoque < 0:
-        raise AppError("Estoque não pode ser negativo")
+        raise ValidacaoError("Estoque não pode ser negativo")
+    if len(nome) < NOME_PRODUTO_MIN:
+        raise ValidacaoError("Nome muito curto")
+    if len(nome) > NOME_PRODUTO_MAX:
+        raise ValidacaoError("Nome muito longo")
+    if categoria not in CATEGORIAS_VALIDAS:
+        raise ValidacaoError(f"Categoria inválida. Válidas: {CATEGORIAS_VALIDAS}")
 
-    if validar_nome_e_categoria:
-        if len(nome) < NOME_PRODUTO_MIN:
-            raise AppError("Nome muito curto")
-        if len(nome) > NOME_PRODUTO_MAX:
-            raise AppError("Nome muito longo")
-        if categoria not in CATEGORIAS_VALIDAS:
-            raise AppError(f"Categoria inválida. Válidas: {CATEGORIAS_VALIDAS}")
-
-    return {
-        "nome": nome,
-        "descricao": dados.get("descricao", ""),
-        "preco": preco,
-        "estoque": estoque,
-        "categoria": categoria,
-    }
+    return {"nome": nome, "descricao": descricao, "preco": preco, "estoque": estoque, "categoria": categoria}
 
 
-def listar(limite=None, deslocamento=None) -> list[dict]:
-    produtos = produto_model.listar(limite, deslocamento)
-    logger.info("listando %d produtos", len(produtos))
-    return produtos
+def listar(limite=None, offset=0):
+    return produto_model.listar(limite, offset)
 
 
-def buscar(produto_id: int) -> dict:
-    produto = produto_model.buscar_por_id(produto_id)
-    if not produto:
-        raise AppError("Produto não encontrado", status=404, incluir_sucesso=True)
-    return produto
+def obter(produto_id):
+    return produto_model.buscar_por_id(produto_id)
 
 
-def pesquisar(termo, categoria, preco_min, preco_max, limite=None, deslocamento=None) -> list[dict]:
-    return produto_model.buscar(termo, categoria, preco_min, preco_max, limite, deslocamento)
+def _exigir_existente(produto_id):
+    if produto_model.buscar_por_id(produto_id) is None:
+        raise NaoEncontradoError("Produto não encontrado")
 
 
-def criar(dados: dict | None) -> int:
-    campos = _validar_payload(dados, validar_nome_e_categoria=True)
+def buscar(termo, categoria, preco_min, preco_max):
+    try:
+        preco_min = float(preco_min) if preco_min else preco_min
+        preco_max = float(preco_max) if preco_max else preco_max
+    except ValueError:
+        raise ValidacaoError("preco_min e preco_max devem ser numéricos") from None
+    return produto_model.buscar(termo, categoria, preco_min, preco_max)
+
+
+def criar(dados):
+    campos = validar(dados)
     produto_id = produto_model.criar(**campos)
-    logger.info("produto criado", extra={"produto_id": produto_id})
+    logger.info("produto criado id=%s", produto_id)
     return produto_id
 
 
-def atualizar(produto_id: int, dados: dict | None) -> None:
-    if not produto_model.buscar_por_id(produto_id):
-        raise AppError("Produto não encontrado", status=404)
-    campos = _validar_payload(dados, validar_nome_e_categoria=False)
-    produto_model.atualizar(produto_id, **campos)
+def atualizar(produto_id, dados):
+    _exigir_existente(produto_id)
+    produto_model.atualizar(produto_id, **validar(dados))
 
 
-def deletar(produto_id: int) -> None:
-    if not produto_model.buscar_por_id(produto_id):
-        raise AppError("Produto não encontrado", status=404)
-    produto_model.deletar(produto_id)
-    logger.info("produto deletado", extra={"produto_id": produto_id})
+def remover(produto_id):
+    _exigir_existente(produto_id)
+    produto_model.remover(produto_id)
+    logger.info("produto removido id=%s", produto_id)

@@ -1,23 +1,17 @@
-"""Leitura dos parâmetros opcionais de paginação.
-
-Sem `limit` na query string a listagem continua integral — é o comportamento que o
-baseline capturou, e mudar o default seria mudança de contrato.
-"""
 from flask import request
 
-from src.middlewares.error_handler import AppError
-from src.models.constants import LIMITE_PAGINACAO_MAXIMO
+from src.errors import ValidacaoError
+from src.models.constants import LIMITE_MAXIMO_PAGINA
 
 
-def ler_paginacao() -> tuple[int | None, int | None]:
-    limite_bruto = request.args.get("limit")
-    if limite_bruto is None:
-        return None, None
-
+def ler_paginacao():
+    """`limit`/`offset` opcionais. Sem `limit`, a listagem vem inteira (contrato original)."""
+    limite, offset = request.args.get("limit"), request.args.get("offset", "0")
     try:
-        limite = min(int(limite_bruto), LIMITE_PAGINACAO_MAXIMO)
-        deslocamento = int(request.args.get("offset", 0))
+        offset = int(offset)
+        limite = None if limite is None else min(int(limite), LIMITE_MAXIMO_PAGINA)
     except ValueError:
-        raise AppError("Parâmetros de paginação inválidos")
-
-    return max(limite, 0), max(deslocamento, 0)
+        raise ValidacaoError("limit e offset devem ser inteiros") from None
+    if offset < 0 or (limite is not None and limite < 1):
+        raise ValidacaoError("limit deve ser positivo e offset não negativo")
+    return limite, offset

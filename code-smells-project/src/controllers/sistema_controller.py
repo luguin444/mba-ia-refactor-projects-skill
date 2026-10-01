@@ -1,18 +1,19 @@
-"""Handlers de índice e health-check.
+import logging
 
-O health deixou de devolver `secret_key`, `debug` e `db_path` — exceção de contrato
-declarada na Fase 2. Os contadores vêm dos models, não de SQL escrito aqui.
-"""
 from flask import jsonify
 
 from src.config.settings import settings
-from src.models import pedido_model, produto_model, usuario_model
+from src.middlewares.error_handler import MENSAGEM_ERRO_INTERNO
+from src.models import sistema_model
+from src.models.constants import VERSAO_API
+
+logger = logging.getLogger(__name__)
 
 
 def index():
     return jsonify({
         "mensagem": "Bem-vindo à API da Loja",
-        "versao": settings.VERSAO,
+        "versao": VERSAO_API,
         "endpoints": {
             "produtos": "/produtos",
             "usuarios": "/usuarios",
@@ -25,14 +26,18 @@ def index():
 
 
 def health():
+    # Captura local deliberada: o /health tem formato de erro próprio ({status, detalhes}).
+    try:
+        contagens = sistema_model.contagens()
+    except Exception:
+        logger.exception("health check falhou")
+        return jsonify({"status": "erro", "detalhes": MENSAGEM_ERRO_INTERNO}), 500
     return jsonify({
         "status": "ok",
         "database": "connected",
-        "counts": {
-            "produtos": produto_model.contar(),
-            "usuarios": usuario_model.contar(),
-            "pedidos": pedido_model.contar(),
-        },
-        "versao": settings.VERSAO,
-        "ambiente": settings.AMBIENTE,
+        "counts": contagens,
+        "versao": VERSAO_API,
+        "ambiente": settings.APP_ENV,
+        "db_path": settings.DATABASE_PATH,
+        "debug": settings.DEBUG,
     }), 200

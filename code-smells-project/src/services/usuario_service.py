@@ -1,56 +1,55 @@
-"""Regra de negócio de usuário e autenticação."""
 import logging
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from src.middlewares.error_handler import AppError
-from src.models import usuario_model
-from src.models.serializers import serializar_usuario_autenticado
+from src.errors import NaoAutenticadoError, NaoEncontradoError, ValidacaoError
+from src.models import serializers, usuario_model
+from src.models.constants import TipoUsuario
+from src.services import token_service
 
 logger = logging.getLogger(__name__)
 
 
-def listar(limite=None, deslocamento=None) -> list[dict]:
-    return usuario_model.listar(limite, deslocamento)
+def listar(limite=None, offset=0):
+    return usuario_model.listar(limite, offset)
 
 
-def buscar(usuario_id: int) -> dict:
+def obter(usuario_id):
     usuario = usuario_model.buscar_por_id(usuario_id)
-    if not usuario:
-        raise AppError("Usuário não encontrado", status=404)
+    if usuario is None:
+        raise NaoEncontradoError("Usuário não encontrado")
     return usuario
 
 
-def criar(dados: dict | None) -> int:
-    if not dados:
-        raise AppError("Dados inválidos")
+def cadastrar(dados):
+    if not dados or not isinstance(dados, dict):
+        raise ValidacaoError("Dados inválidos")
 
     nome = dados.get("nome", "")
     email = dados.get("email", "")
     senha = dados.get("senha", "")
-
     if not nome or not email or not senha:
-        raise AppError("Nome, email e senha são obrigatórios")
+        raise ValidacaoError("Nome, email e senha são obrigatórios")
 
-    # A senha nunca chega ao banco em texto claro.
-    usuario_id = usuario_model.criar(nome, email, generate_password_hash(senha))
-    logger.info("usuário criado", extra={"usuario_id": usuario_id})
+    # O papel nunca vem do corpo: cadastro público cria sempre cliente.
+    usuario_id = usuario_model.criar(nome, email, generate_password_hash(senha), TipoUsuario.CLIENTE)
+    logger.info("usuário criado id=%s", usuario_id)
     return usuario_id
 
 
-def autenticar(dados: dict | None) -> dict:
-    """Verifica a senha na aplicação — antes a comparação acontecia dentro do WHERE."""
-    dados = dados or {}
+def autenticar(dados):
+    """Devolve (usuario_publico, token). Credencial inválida levanta 401."""
+    dados = dados if isinstance(dados, dict) else {}
     email = dados.get("email", "")
     senha = dados.get("senha", "")
-
     if not email or not senha:
-        raise AppError("Email e senha são obrigatórios")
+        raise ValidacaoError("Email e senha são obrigatórios")
 
-    linha = usuario_model.buscar_linha_por_email(email)
-    if linha is None or not check_password_hash(linha["senha"], senha):
-        logger.info("tentativa de login recusada")
-        raise AppError("Email ou senha inválidos", status=401, incluir_sucesso=True)
+    row = usuario_model.buscar_credenciais_por_email(email)
+    if row is None or not check_password_hash(row["senha"], str(senha)):
+        logger.info("login recusado")
+        raise NaoAutenticadoError("Email ou senha inválidos", com_sucesso=True)
 
-    logger.info("login bem-sucedido", extra={"usuario_id": linha["id"]})
-    return serializar_usuario_autenticado(linha)
+    usuario = serializers.usuario_autenticado(row)
+    logger.info("login ok id=%s", usuario["id"])
+    return usuario, token_service.emitir(usuario)
