@@ -856,7 +856,10 @@ GET    /users/<id>                dono ou admin    dado de outro usuário
 GET    /users/<id>/tasks          dono ou admin    tarefas de outro usuário
 GET    /reports/summary           admin            relatório agregado nomeando cada usuário
 GET    /tasks                     credencial       quadro da equipe, não de um sujeito
-POST   /tasks                     credencial       escrita em dado compartilhado
+POST   /tasks                     credencial       cria item que nasce com responsável (coluna de dono)
+POST   /categories                admin            escrita em dado sem dono; cadastro é público
+PUT    /categories/<id>           admin            escrita em dado sem dono; cadastro é público
+DELETE /categories/<id>           admin            apaga dado sem dono; cadastro é público
 PUT    /users/<id>                dono ou admin    edita outro usuário
 PUT    /users/<id> com role       admin            altera privilégio
 POST   /users                     público          único caminho de entrada
@@ -873,13 +876,16 @@ Use esta tabela como critério:
 | Categoria | Tratamento |
 |---|---|
 | Opera sobre recurso identificado por id de outro sujeito — `/users/<id>`, `/pedidos/usuario/<id>`, `/tasks/<id>` | exige credencial **e** ser dono do recurso ou admin |
-| Escreve ou apaga dado que não pertence a ninguém em particular — catálogo, categorias | exige credencial |
+| Escreve ou apaga dado que não pertence a ninguém em particular — catálogo, categorias, configuração — **e o cadastro é público** | exige credencial **e** papel de admin |
+| Escreve ou apaga dado sem dono, **e a entrada no sistema é controlada** (conta criada por convite ou por admin) | exige credencial |
 | Lê dado de terceiro em massa (lista de usuários, pedidos alheios, relatório agregado) | exige credencial **e** papel de admin |
 | Relatório ou painel administrativo | exige credencial **e** papel de admin |
 | Login, cadastro, health, raiz | público |
 | Único caminho de entrada do usuário no sistema — checkout que cria a conta, cadastro | **público**, e a recomendação diz por quê |
 
 **A primeira linha é a que se esquece nas escritas, e a terceira nas leituras. Os dois esquecimentos são silenciosos.** "Exige credencial" numa rota que recebe um id de usuário no caminho fecha o anônimo e deixa o buraco aberto para qualquer pessoa logada: um cliente comum apaga a conta do admin, lê o pedido de outro, edita a task de terceiro. O teste é mecânico — **toda rota cujo caminho contém um id de sujeito precisa de checagem de dono, não só de credencial.** Se o middleware só tem "autenticado" e "admin", falta um terceiro: "dono ou admin", que compara o `sub` do token com o id do caminho.
+
+**Dado sem dono com cadastro público é a segunda armadilha das escritas.** Se qualquer pessoa cria conta com uma requisição, "exige credencial" numa escrita sobre catálogo ou categorias equivale a deixá-la anônima: o atacante se cadastra e muda o preço do produto para 0,01 ou apaga todas as categorias. O teste também é mecânico — **a tabela não tem coluna que diga de quem é a linha, e existe rota pública de cadastro → escrita exige admin.** Recurso que tem coluna de dono (task com `user_id`, pedido com `usuario_id`) não cai aqui: a criação pode ficar com credencial, e a edição e a remoção ficam com dono ou admin. Leitura de dado compartilhado que não é pessoal (quadro da equipe, catálogo) continua com credencial ou pública.
 
 Declare os três níveis separadamente no relatório. Uma rota listada como "exige credencial" quando precisava de dono-ou-admin é subdeclaração: o humano aprova entendendo que o recurso está protegido, e ele não está.
 

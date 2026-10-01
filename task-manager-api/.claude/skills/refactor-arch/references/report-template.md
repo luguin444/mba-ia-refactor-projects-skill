@@ -103,4 +103,6 @@ Quando não der para enumerar com certeza, diga o mecanismo e o alcance esperado
 
 O projeto auditado pode ser um subdiretório do repositório — nesse caso o relatório vai para a raiz, **não** para dentro do projeto. Se não houver repositório git, use o diretório corrente e informe.
 
+**Se o arquivo já existir, sobrescreva — não continue de onde ele parou.** Um relatório no disco é resultado de outra execução, possivelmente descartada. Herdar escopo, severidade ou decisão dele produz um relatório que afirma coisas que a execução atual não verificou, e atribui ao humano decisões que ele não tomou aqui. Ver a regra 9 do `SKILL.md`.
+
 Escrever este arquivo é permitido antes do gate — ele não é código do projeto. Qualquer arquivo **dentro** do projeto auditado só depois do "y".
