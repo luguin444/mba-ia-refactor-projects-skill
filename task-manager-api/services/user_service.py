@@ -1,151 +1,128 @@
-"""Regra de negócio de User: validação, credenciais e ciclo de vida."""
 import logging
 
-from exceptions import (
-    AppError,
-    ConflictError,
-    ForbiddenError,
-    NotFoundError,
-    UnauthorizedError,
-)
-from models.constants import MIN_PASSWORD_LENGTH, VALID_ROLES, UserRole
+from exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
+from models.constants import DEFAULT_ROLE, MIN_PASSWORD_LENGTH, VALID_ROLES
 from models.user import User
-from repositories import unit_of_work, user_repository
-from utils.helpers import is_valid_email
+from repositories import task_repository, unit_of_work, user_repository
+from services import token_service
+from utils.helpers import validate_email
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_email(email: str) -> str:
-    if not is_valid_email(email):
-        raise AppError('Email inválido')
-    return email
-
-
-def _validate_role(role: str) -> str:
-    if role not in VALID_ROLES:
-        raise AppError('Role inválido')
-    return role
-
-
-def _assert_email_disponivel(email: str, ignorar_id: int | None = None) -> None:
-    existente = user_repository.get_by_email(email)
-    if existente and existente.id != ignorar_id:
-        raise ConflictError('Email já cadastrado')
-
-
-def list_users(*, limit=None, offset=None) -> list[User]:
-    return user_repository.list_all(limit=limit, offset=offset)
-
-
-def get_user(user_id: int) -> User:
-    user = user_repository.get_by_id(user_id)
-    if not user:
+def get_or_404(user_id):
+    user = user_repository.get(user_id)
+    if user is None:
         raise NotFoundError('Usuário não encontrado')
     return user
 
 
-def create_user(data: dict) -> User:
+def _ensure_email_available(email, owner_id=None):
+    existing = user_repository.get_by_email(email)
+    if existing and existing.id != owner_id:
+        raise ConflictError('Email já cadastrado')
+
+
+def list_with_task_count(page=None):
+    task_counts = task_repository.count_by_user()
+    return [
+        {**user.to_dict(), 'task_count': task_counts.get(user.id, 0)}
+        for user in user_repository.list_all(page)
+    ]
+
+
+def get_with_tasks(user_id):
+    user = get_or_404(user_id)
+    return {**user.to_dict(), 'tasks': [task.to_dict() for task in task_repository.list_by_user(user_id)]}
+
+
+def list_tasks(user_id):
+    get_or_404(user_id)
+    return [task.to_owner_list_dict() for task in task_repository.list_by_user(user_id)]
+
+
+def create(data):
+    """Cadastro público. O papel nunca vem do cliente: todo cadastro nasce com o papel default."""
     if not data:
-        raise AppError('Dados inválidos')
+        raise ValidationError('Dados inválidos')
 
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
 
     if not name:
-        raise AppError('Nome é obrigatório')
+        raise ValidationError('Nome é obrigatório')
     if not email:
-        raise AppError('Email é obrigatório')
+        raise ValidationError('Email é obrigatório')
     if not password:
-        raise AppError('Senha é obrigatória')
-
-    _validate_email(email)
+        raise ValidationError('Senha é obrigatória')
+    if not validate_email(email):
+        raise ValidationError('Email inválido')
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise AppError('Senha deve ter no mínimo 4 caracteres')
-    _assert_email_disponivel(email)
-    role = _validate_role(data.get('role', UserRole.USER.value))
+        raise ValidationError('Senha deve ter no mínimo 4 caracteres')
+    _ensure_email_available(email)
 
-    user = User()
-    user.name = name
-    user.email = email
+    user = User(name=name, email=email, role=DEFAULT_ROLE.value)
     user.set_password(password)
-    user.role = role
 
-    user_repository.add(user)
-    unit_of_work.commit()
-    logger.info('usuário criado', extra={'user_id': user.id})
-    return user
+    unit_of_work.add(user)
+    unit_of_work.commit('Erro ao criar usuário')
+    logger.info('Usuário criado: %s - %s', user.id, user.name)
+    return user.to_dict()
 
 
-def update_user(user_id: int, data: dict) -> User:
-    user = get_user(user_id)
+def update(user, data, actor):
+    """`role` e `active` conferem acesso: só admin os altera; para os demais são ignorados."""
     if not data:
-        raise AppError('Dados inválidos')
+        raise ValidationError('Dados inválidos')
 
     if 'name' in data:
         user.name = data['name']
+
     if 'email' in data:
-        _validate_email(data['email'])
-        _assert_email_disponivel(data['email'], ignorar_id=user_id)
+        if not validate_email(data['email']):
+            raise ValidationError('Email inválido')
+        _ensure_email_available(data['email'], owner_id=user.id)
         user.email = data['email']
+
+    # A mensagem difere da do cadastro desde o original; o contrato fixa as duas.
     if 'password' in data:
         if len(data['password']) < MIN_PASSWORD_LENGTH:
-            raise AppError('Senha muito curta')
+            raise ValidationError('Senha muito curta')
         user.set_password(data['password'])
-    if 'role' in data:
-        user.role = _validate_role(data['role'])
-    if 'active' in data:
-        user.active = data['active']
 
-    unit_of_work.commit()
-    logger.info('usuário atualizado', extra={'user_id': user.id})
-    return user
+    if actor.is_admin:
+        if 'role' in data:
+            if data['role'] not in VALID_ROLES:
+                raise ValidationError('Role inválido')
+            user.role = data['role']
+        if 'active' in data:
+            user.active = data['active']
 
-
-def delete_user(user_id: int) -> None:
-    """Remove o usuário. As tasks dele caem junto pelo cascade do relacionamento."""
-    user = get_user(user_id)
-    user_repository.remove(user)
-    unit_of_work.commit()
-    logger.info('usuário removido', extra={'user_id': user_id})
+    unit_of_work.commit('Erro ao atualizar')
+    return user.to_dict()
 
 
-def authenticate(data: dict) -> User:
+def delete(user_id):
+    user = get_or_404(user_id)
+    unit_of_work.delete(user)  # cascade do relacionamento apaga as tasks na mesma transação
+    unit_of_work.commit('Erro ao deletar')
+    logger.info('Usuário deletado: %s', user_id)
+
+
+def authenticate(data):
     if not data:
-        raise AppError('Dados inválidos')
+        raise ValidationError('Dados inválidos')
 
     email = data.get('email')
     password = data.get('password')
     if not email or not password:
-        raise AppError('Email e senha são obrigatórios')
+        raise ValidationError('Email e senha são obrigatórios')
 
     user = user_repository.get_by_email(email)
-    if not user or not user.check_password(password):
+    if user is None or not user.check_password(password):
         raise UnauthorizedError('Credenciais inválidas')
     if not user.active:
         raise ForbiddenError('Usuário inativo')
 
-    if user.has_legacy_password():
-        # Migração dos hashes MD5 herdados: reescreve com scrypt agora que a
-        # senha em claro está disponível e confirmada.
-        user.set_password(password)
-        unit_of_work.commit()
-        logger.info('hash de senha migrado para scrypt', extra={'user_id': user.id})
-
-    return user
-
-
-# Prefixo do token emitido pelo login. NÃO é credencial: a string é previsível,
-# não é assinada e nenhuma rota a verifica. Preservado porque faz parte do
-# contrato atual; substituí-lo por JWT real é decisão de produto (AP-07).
-STUB_TOKEN_PREFIX = 'fake-jwt-token-'
-
-
-def issue_token(user: User) -> str:
-    logger.warning(
-        'emitindo token stub, previsível e não verificado; '
-        'autenticação real ainda não foi implementada',
-        extra={'user_id': user.id},
-    )
-    return f'{STUB_TOKEN_PREFIX}{user.id}'
+    return user.to_dict(), token_service.issue(user)

@@ -1,6 +1,6 @@
 from database import db
-from models.constants import DEFAULT_COLOR
-from utils.helpers import utc_now
+from models.constants import DEFAULT_CATEGORY_COLOR
+from utils.helpers import utcnow
 
 
 class Category(db.Model):
@@ -9,14 +9,13 @@ class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(300), nullable=True)
-    color = db.Column(db.String(7), default=DEFAULT_COLOR)
-    created_at = db.Column(db.DateTime, default=utc_now)
+    color = db.Column(db.String(7), default=DEFAULT_CATEGORY_COLOR)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
-    # Sem cascade: apagar a categoria desvincula as tasks (ondelete='SET NULL'),
-    # não as destrói.
-    tasks = db.relationship('Task', back_populates='category', passive_deletes=True)
+    # Sem cascade de delete: apagar a categoria anula category_id nas tasks (comportamento original).
+    tasks = db.relationship('Task', back_populates='category')
 
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,

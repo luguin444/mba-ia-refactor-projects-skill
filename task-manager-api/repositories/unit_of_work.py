@@ -1,16 +1,26 @@
-"""Fronteira de transação.
+import logging
 
-A sessão do SQLAlchemy já é transacional: tudo que os repositórios registram
-entra na mesma transação e é confirmado ou desfeito em bloco. O rollback do
-caminho de erro fica no handler central (`middlewares/error_handler.py`), então
-os serviços só precisam marcar onde a transação termina.
-"""
+from sqlalchemy.exc import SQLAlchemyError
+
 from database import db
+from exceptions import AppError
+
+logger = logging.getLogger(__name__)
 
 
-def commit() -> None:
-    db.session.commit()
+def add(entity):
+    db.session.add(entity)
 
 
-def rollback() -> None:
-    db.session.rollback()
+def delete(entity):
+    db.session.delete(entity)
+
+
+def commit(error_message):
+    """Confirma a transação; em falha, desfaz, registra e responde 500 com a mensagem da operação."""
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("falha ao confirmar transação: %s", error_message)
+        raise AppError(error_message, 500)

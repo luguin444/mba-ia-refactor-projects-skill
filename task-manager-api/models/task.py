@@ -1,6 +1,13 @@
 from database import db
-from models.constants import DEFAULT_PRIORITY, FINAL_STATUSES, TaskStatus
-from utils.helpers import format_date, utc_now
+from models.constants import (
+    DEFAULT_PRIORITY,
+    FINISHED_STATUSES,
+    MAX_PRIORITY,
+    MIN_PRIORITY,
+    TaskStatus,
+    VALID_STATUSES,
+)
+from utils.helpers import utcnow
 
 
 class Task(db.Model):
@@ -11,38 +18,33 @@ class Task(db.Model):
     description = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(50), default=TaskStatus.PENDING.value)
     priority = db.Column(db.Integer, default=DEFAULT_PRIORITY)
-    user_id = db.Column(
-        db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=True
-    )
-    category_id = db.Column(
-        db.Integer, db.ForeignKey('categories.id', ondelete='SET NULL'), nullable=True
-    )
-    created_at = db.Column(db.DateTime, default=utc_now)
-    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     due_date = db.Column(db.DateTime, nullable=True)
     tags = db.Column(db.String(500), nullable=True)
 
     user = db.relationship('User', back_populates='tasks')
     category = db.relationship('Category', back_populates='tasks')
 
-    def is_overdue(self) -> bool:
-        """Task com prazo vencido que ainda não chegou a um status final."""
+    @staticmethod
+    def validate_status(new_status):
+        return new_status in VALID_STATUSES
+
+    @staticmethod
+    def validate_priority(priority):
+        return MIN_PRIORITY <= priority <= MAX_PRIORITY
+
+    def is_overdue(self):
         return (
             self.due_date is not None
-            and self.due_date < utc_now()
-            and self.status not in FINAL_STATUSES
+            and self.due_date < utcnow()
+            and self.status not in FINISHED_STATUSES
         )
 
-    def tag_list(self) -> list[str]:
-        return self.tags.split(',') if self.tags else []
-
-    def to_dict(self, *, include_overdue: bool = False, include_relations: bool = False) -> dict:
-        """Serializa a task.
-
-        As três variações existem porque o contrato atual expõe três formatos
-        distintos do mesmo recurso — ver `to_summary_dict` para o quarto.
-        """
-        data = {
+    def to_dict(self):
+        return {
             'id': self.id,
             'title': self.title,
             'description': self.description,
@@ -52,18 +54,24 @@ class Task(db.Model):
             'category_id': self.category_id,
             'created_at': str(self.created_at),
             'updated_at': str(self.updated_at),
-            'due_date': format_date(self.due_date),
-            'tags': self.tag_list(),
+            'due_date': str(self.due_date) if self.due_date else None,
+            'tags': self.tags.split(',') if self.tags else [],
         }
-        if include_overdue:
-            data['overdue'] = self.is_overdue()
-        if include_relations:
-            data['user_name'] = self.user.name if self.user else None
-            data['category_name'] = self.category.name if self.category else None
-        return data
 
-    def to_summary_dict(self) -> dict:
-        """Formato reduzido usado por `GET /users/<id>/tasks`."""
+    def to_detail_dict(self):
+        """GET /tasks/<id>: o recurso com o indicador de atraso."""
+        return {**self.to_dict(), 'overdue': self.is_overdue()}
+
+    def to_board_dict(self):
+        """GET /tasks: o quadro, com os nomes de responsável e categoria."""
+        return {
+            **self.to_detail_dict(),
+            'user_name': self.user.name if self.user else None,
+            'category_name': self.category.name if self.category else None,
+        }
+
+    def to_owner_list_dict(self):
+        """GET /users/<id>/tasks: recorte sem ids de relacionamento, tags nem updated_at."""
         return {
             'id': self.id,
             'title': self.title,
@@ -71,6 +79,15 @@ class Task(db.Model):
             'status': self.status,
             'priority': self.priority,
             'created_at': str(self.created_at),
-            'due_date': format_date(self.due_date),
+            'due_date': str(self.due_date) if self.due_date else None,
             'overdue': self.is_overdue(),
+        }
+
+    def to_overdue_dict(self):
+        """Item da lista de atrasadas no relatório geral."""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'due_date': str(self.due_date),
+            'days_overdue': (utcnow() - self.due_date).days,
         }

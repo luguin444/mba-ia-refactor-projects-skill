@@ -1,34 +1,32 @@
-"""Erros de domínio.
-
-Vivem fora de `middlewares/` de propósito: os serviços os levantam e não devem
-depender da camada HTTP para isso. Quem traduz cada um em resposta é o handler
-central em `middlewares/error_handler.py`.
-"""
-
-
 class AppError(Exception):
-    """Erro de domínio com status HTTP. O corpo emitido é `{'error': <mensagem>}`."""
+    """Erro de domínio com mensagem e status HTTP; traduzido em JSON pelo middleware de erro."""
 
-    status = 400
-
-    def __init__(self, mensagem: str, status: int | None = None):
-        super().__init__(mensagem)
-        self.mensagem = mensagem
-        if status is not None:
-            self.status = status
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
 
 
-class UnauthorizedError(AppError):
-    status = 401
-
-
-class ForbiddenError(AppError):
-    status = 403
+class ValidationError(AppError):
+    def __init__(self, message):
+        super().__init__(message, 400)
 
 
 class NotFoundError(AppError):
-    status = 404
+    def __init__(self, message):
+        super().__init__(message, 404)
 
 
 class ConflictError(AppError):
-    status = 409
+    def __init__(self, message):
+        super().__init__(message, 409)
+
+
+class UnauthorizedError(AppError):
+    def __init__(self, message):
+        super().__init__(message, 401)
+
+
+class ForbiddenError(AppError):
+    def __init__(self, message):
+        super().__init__(message, 403)

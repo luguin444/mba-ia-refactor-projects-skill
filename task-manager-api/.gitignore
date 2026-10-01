@@ -1,5 +1,7 @@
-.refactor-arch/
 .venv/
 __pycache__/
+*.pyc
 instance/
+*.db
 .env
+.refactor-arch/

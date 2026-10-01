@@ -1,34 +1,28 @@
-"""Acesso a dados de User."""
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from database import db
 from models.user import User
 
 
-def list_all(*, limit: int | None = None, offset: int | None = None) -> list[User]:
-    stmt = select(User).order_by(User.id)
-    if offset:
-        stmt = stmt.offset(offset)
-    if limit is not None:
-        stmt = stmt.limit(limit)
-    return list(db.session.execute(stmt).scalars().all())
-
-
-def get_by_id(user_id: int) -> User | None:
+def get(user_id):
     return db.session.get(User, user_id)
 
 
-def get_by_email(email: str) -> User | None:
-    return db.session.execute(select(User).where(User.email == email)).scalars().first()
+def get_by_email(email):
+    return db.session.scalars(select(User).where(User.email == email)).first()
 
 
-def count_all() -> int:
-    return db.session.execute(select(func.count()).select_from(User)).scalar_one()
+def list_all(page=None):
+    stmt = select(User).order_by(User.id)
+    if page is not None:
+        stmt = stmt.limit(page.limit).offset(page.offset)
+    return db.session.scalars(stmt).all()
 
 
-def add(user: User) -> None:
-    db.session.add(user)
+def list_with_tasks():
+    return db.session.scalars(select(User).options(selectinload(User.tasks)).order_by(User.id)).all()
 
 
-def remove(user: User) -> None:
-    db.session.delete(user)
+def count():
+    return db.session.scalar(select(func.count(User.id)))

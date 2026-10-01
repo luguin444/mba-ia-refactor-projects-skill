@@ -1,59 +1,43 @@
-"""Configuração lida do ambiente. Único lugar com valor que varia por ambiente."""
 import logging
 import os
+from datetime import timedelta
 
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
-
-# Carrega o .env local, quando existir. Variáveis já definidas no ambiente
-# vencem o arquivo.
 load_dotenv()
+
+_logger = logging.getLogger(__name__)
 
 
 def _secret_key() -> str:
-    """Lê SECRET_KEY do ambiente; sem a variável, gera uma efêmera e avisa.
+    """Lê SECRET_KEY do ambiente; sem a variável, gera uma chave efêmera e avisa.
 
-    A chave gerada muda a cada restart, então toda sessão assinada com ela é
-    invalidada no próximo boot. Não há fallback literal: um segredo fixo no
-    código é o mesmo segredo hardcoded com uma indireção a mais.
+    A chave efêmera muda a cada restart, então todo token emitido antes dele deixa de valer.
     """
-    chave = os.environ.get('SECRET_KEY')
-    if chave:
-        return chave
-    logger.warning(
-        'SECRET_KEY ausente: usando chave efêmera gerada no boot. '
-        'Sessões assinadas não sobrevivem ao restart. Defina SECRET_KEY em produção.'
+    key = os.environ.get("SECRET_KEY")
+    if key:
+        return key
+    _logger.warning(
+        "SECRET_KEY ausente: usando chave efêmera gerada no boot. "
+        "Tokens emitidos não sobrevivem ao restart. Defina SECRET_KEY em produção."
     )
     return os.urandom(32).hex()
 
 
-def _cors_origins() -> list[str] | str:
-    """Origens permitidas. Sem a variável, libera tudo e avisa.
-
-    O default permissivo existe para o projeto rodar recém-clonado; o aviso
-    existe para que ninguém suba assim em produção sem perceber.
-    """
-    brutas = os.environ.get('CORS_ORIGINS', '').strip()
-    if not brutas:
-        logger.warning(
-            'CORS_ORIGINS ausente: liberando todas as origens. '
-            'Defina a lista de origens permitidas em produção.'
-        )
-        return '*'
-    return [origem.strip() for origem in brutas.split(',') if origem.strip()]
+def _list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 class Settings:
     SECRET_KEY = _secret_key()
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URI', 'sqlite:///tasks.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-
-    DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
-    HOST = os.environ.get('HOST', '127.0.0.1')
-    PORT = int(os.environ.get('PORT', '5000'))
-    CORS_ORIGINS = _cors_origins()
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    HOST = os.getenv("HOST", "127.0.0.1")
+    PORT = int(os.getenv("PORT", "5000"))
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tasks.db")
+    # Default "*" preserva o comportamento atual; quais origens liberar é decisão de produto.
+    CORS_ORIGINS = _list(os.getenv("CORS_ORIGINS", "*"))
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    TOKEN_TTL = timedelta(hours=int(os.getenv("TOKEN_TTL_HOURS", "12")))
 
 
 settings = Settings()

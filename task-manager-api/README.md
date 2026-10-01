@@ -1,38 +1,56 @@
 # task-manager-api
 
-API de Task Manager em Python/Flask, organizada em camadas: as rotas só fazem binding, os controllers traduzem HTTP, os serviços concentram a regra de negócio e os repositórios são o único lugar que monta query.
+API de Task Manager em Python/Flask usada como entrada do desafio `refactor-arch`.
 
 ## Como rodar
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env    # opcional; sem ele a app sobe com defaults e avisa no log
-python seed.py
-python app.py
+cp .env.example .env      # defina SECRET_KEY
+python seed.py            # cria o schema e popula o banco
+python app.py             # sobe em http://127.0.0.1:5000
 ```
 
-A aplicação sobe em `http://127.0.0.1:5000` por padrão. O `seed.py` cria o schema e popula o SQLite (`instance/tasks.db`) com usuários, categorias e tasks de exemplo — **rode-o antes do primeiro boot**, caso contrário os endpoints vão retornar listas vazias.
+O `seed.py` recria os dados de exemplo no SQLite (`instance/tasks.db`). Bancos criados por versões anteriores guardam senhas em MD5 e precisam ser re-semeados. Para só criar o schema sem dados: `flask --app app init-db`.
 
-Sem `SECRET_KEY` no ambiente, o boot gera uma chave efêmera e registra um `WARNING`: as sessões assinadas não sobrevivem ao restart. Sem `CORS_ORIGINS`, todas as origens são liberadas, também com aviso. Defina as duas em produção.
+Configuração por ambiente (ver `.env.example`):
+
+| Variável | Default | Observação |
+|---|---|---|
+| `SECRET_KEY` | efêmera, com aviso no log | assina os tokens; sem ela, todo token cai a cada restart |
+| `DEBUG` | `false` | |
+| `HOST` / `PORT` | `127.0.0.1` / `5000` | use `HOST=0.0.0.0` para expor na rede |
+| `DATABASE_URL` | `sqlite:///tasks.db` | |
+| `CORS_ORIGINS` | `*` | lista separada por vírgula |
+| `TOKEN_TTL_HOURS` | `12` | |
+
+## Autenticação
+
+`POST /login` devolve um JWT em `token`. Envie-o como `Authorization: Bearer <token>`.
+
+| Nível | Rotas |
+|---|---|
+| público | `GET /`, `GET /health`, `POST /login`, `POST /users`, `GET /categories` |
+| credencial | `GET /tasks`, `GET /tasks/<id>`, `GET /tasks/search`, `GET /tasks/stats`, `POST /tasks` |
+| responsável pela task ou admin | `PUT /tasks/<id>`, `DELETE /tasks/<id>` |
+| o próprio usuário ou admin | `GET/PUT/DELETE /users/<id>`, `GET /users/<id>/tasks`, `GET /reports/user/<id>` |
+| admin | `GET /users`, `GET /reports/summary`, `POST/PUT/DELETE /categories` |
+
+O cadastro sempre cria usuários com papel `user`. Só admin altera `role` e `active`.
+
+Usuários do seed: `joao@email.com` / `1234` (admin), `maria@email.com` / `abcd`, `pedro@email.com` / `pass`.
+
+Listagens (`/tasks`, `/tasks/search`, `/users`, `/categories`) aceitam `limit` (1–200) e `offset` opcionais; sem eles, devolvem tudo.
 
 ## Estrutura
 
 ```
-config/         configuração lida do ambiente (único lugar com valor por ambiente)
-models/         entidades, serializadores e predicados de domínio
-repositories/   acesso a dados — único lugar que monta query
-services/       regra de negócio e validação
-controllers/    orquestração HTTP: lê a requisição, chama o serviço, monta a resposta
-routes/         registro de caminho e método
-middlewares/    tratamento central de erro
-exceptions.py   erros de domínio, independentes da camada HTTP
-app.py          composition root
+app.py           composition root (create_app)
+config/          configuração do ambiente e logging
+routes/          caminho, método e nível de acesso
+controllers/     request → service → response
+services/        regra de negócio e emissão de token
+repositories/    acesso a dados e unidade de trabalho
+models/          entidades, serialização e constantes de domínio
+middlewares/     autenticação e tratamento central de erro
 ```
-
-## Paginação
-
-As listagens aceitam `limit` e `offset` opcionais (`GET /tasks?limit=20&offset=40`), com teto de 200 por página. Sem os parâmetros, a resposta traz todos os registros.
-
-## Autenticação
-
-**Não há autenticação.** O `POST /login` valida a senha e devolve um token stub (`fake-jwt-token-<id>`), previsível, não assinado e que nenhuma rota verifica. Toda rota de escrita aceita requisição anônima, e `POST /users` aceita `role` no corpo. Implementar autenticação real é decisão de produto — ver o relatório em `reports/audit-task-manager-api.md`.
